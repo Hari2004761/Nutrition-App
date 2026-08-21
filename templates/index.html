@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FoodLens</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232563EB'/><text x='16' y='23' font-family='Arial,sans-serif' font-size='19' font-weight='bold' fill='white' text-anchor='middle'>F</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ══════════════════ SIDEBAR ══════════════════ -->
+  <aside class="sidebar" id="sidebar">
+
+    <!-- one flex row: logo tile + name + collapse arrow, all siblings -->
+    <div class="sb-top">
+      <!-- Lucide "utensils-crossed" -->
+      <svg class="sb-logo-icon" viewBox="0 0 24 24" width="26" height="26"
+           fill="none" stroke="currentColor" stroke-width="2"
+           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="m16 2-2.3 2.3a3 3 0 0 0 0 4.2l1.8 1.8a3 3 0 0 0 4.2 0L22 8"/>
+        <path d="M15 15 3.3 3.3a4.2 4.2 0 0 0 0 6l7.3 7.3c.7.7 2 .7 2.8 0L15 15Zm0 0 7 7"/>
+        <path d="M2.1 21.8 6.4 17.5"/>
+        <path d="m9 11 1.9-1.9"/>
+      </svg>
+      <span class="sb-app-name">FoodLens</span>
+      <button class="sb-collapse" id="collapseBtn" type="button"
+              title="Collapse sidebar" aria-label="Collapse sidebar">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2.2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+      </button>
+    </div>
+
+    <p class="sb-nav-label">Navigation</p>
+
+    <ul class="sb-nav">
+      <li class="sb-nav-item active" data-view="analysis" tabindex="0" role="button">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+          <circle cx="12" cy="13" r="4"></circle>
+        </svg>
+        <span class="sb-nav-text">Food Analysis</span>
+      </li>
+      <li class="sb-nav-item" data-view="training" tabindex="0" role="button">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+        </svg>
+        <span class="sb-nav-text">Model Training</span>
+      </li>
+    </ul>
+
+    <div class="sb-spacer"></div>
+
+    <div class="sb-avatar-row">
+      <div class="sb-avatar">U</div>
+      <span class="sb-avatar-label">User</span>
+    </div>
+  </aside>
+
+  <!-- ══════════════════ MAIN ══════════════════ -->
+  <main class="main">
+
+    <div class="page-header">
+      <p class="page-title" id="pageTitle">Culinary Intelligence</p>
+    </div>
+
+    <!-- ─────────── FOOD ANALYSIS ─────────── -->
+    <section class="view" id="view-analysis">
+
+      <div class="upload-card">
+        <label class="dropzone" id="dropzone" for="fileInput">
+          <div class="dz-icon">
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="none"
+                 stroke="currentColor" stroke-width="1.8"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="17 8 12 3 7 8"></polyline>
+              <line x1="12" y1="3" x2="12" y2="15"></line>
+            </svg>
+          </div>
+          <p class="dz-main">Click to browse or drag a photo here</p>
+          <p class="dz-sub">JPG, JPEG or PNG &middot; up to 32 MB</p>
+        </label>
+        <input type="file" id="fileInput" accept="image/png,image/jpeg,image/jpg" hidden>
+
+        <div class="filename-strip" id="filenameStrip" hidden>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none"
+               stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
+          </svg>
+          <span id="filenameText"></span>
+        </div>
+
+        <button class="btn-primary" id="analyzeBtn" type="button" disabled>
+          Analyze Photo
+        </button>
+      </div>
+
+      <div class="alert alert-error" id="errorBox" hidden></div>
+
+      <div class="loading-card" id="loadingBox" hidden>
+        <div class="spinner"></div>
+        <p>Detecting and classifying food regions &hellip;</p>
+      </div>
+
+      <div class="empty-state" id="emptyState">
+        <div class="empty-icon">
+          <svg viewBox="0 0 24 24" width="44" height="44" fill="none"
+               stroke="currentColor" stroke-width="1.5"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path>
+            <circle cx="12" cy="13" r="4"></circle>
+          </svg>
+        </div>
+        <p class="empty-title">Upload a food photo to get started</p>
+        <p class="empty-body">
+          FoodLens detects individual food items, classifies each one with a
+          fine-tuned MobileNetV3 neural network, and retrieves calories and
+          macronutrients from the USDA FoodData Central database.
+        </p>
+      </div>
+
+      <div id="results" hidden>
+        <div class="metric-grid" id="metricGrid"></div>
+
+        <p class="section-heading">Detection results</p>
+        <div class="detect-grid">
+          <div>
+            <div class="chart-wrap">
+              <img id="annotatedImg" class="annotated" alt="Annotated detection result">
+            </div>
+            <p class="caption" id="detectCaption"></p>
+          </div>
+          <div id="cardColumn"></div>
+        </div>
+
+        <div id="chartSection" hidden>
+          <p class="section-heading">Meal charts</p>
+          <div class="chart-grid">
+            <div class="chart-wrap"><img id="pieChart" alt="Macronutrient split"></div>
+            <div class="chart-wrap"><img id="barChart" alt="Calories per item"></div>
+          </div>
+        </div>
+
+        <div id="goalSection" hidden>
+          <p class="section-heading">Daily calorie goal</p>
+          <div class="goal-card" id="goalCard"></div>
+        </div>
+
+        <div id="chatSection" hidden>
+          <p class="section-heading">Ask about this meal</p>
+          <div class="chat-card">
+
+            <div class="chat-head">
+              <!-- Lucide "sparkles" -->
+              <svg class="chat-head-icon" viewBox="0 0 24 24" width="20" height="20"
+                   fill="none" stroke="currentColor" stroke-width="2"
+                   stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z"></path>
+                <path d="M5 3v4"></path><path d="M19 17v4"></path>
+                <path d="M3 5h4"></path><path d="M17 19h4"></path>
+              </svg>
+              <div>
+                <p class="chat-title">
+                  Nutrition assistant <span class="chat-badge">Gemini</span>
+                </p>
+                <p class="chat-sub">
+                  Answers are grounded in the meal analysed above &mdash; the
+                  dishes detected and their calories and macros.
+                </p>
+              </div>
+            </div>
+
+            <div class="chat-chips" id="chatChips">
+              <button class="chat-chip" type="button">Is this meal diabetes-friendly?</button>
+              <button class="chat-chip" type="button">How can I make this lower calorie?</button>
+              <button class="chat-chip" type="button">What would you swap out here?</button>
+            </div>
+
+            <div class="chat-log" id="chatLog"></div>
+
+            <div class="chat-typing" id="chatTyping" hidden>
+              <span class="chat-dot"></span>
+              <span class="chat-dot"></span>
+              <span class="chat-dot"></span>
+              <span class="chat-typing-text">Thinking &hellip;</span>
+            </div>
+
+            <div class="alert alert-error" id="chatErrorBox" hidden></div>
+
+            <form class="chat-row" id="chatForm" autocomplete="off">
+              <input type="text" id="chatInput" class="chat-input" maxlength="2000"
+                     placeholder="Ask about this meal &hellip;">
+              <button class="btn-send" id="chatSend" type="submit">Send</button>
+            </form>
+
+            <p class="chat-disclaimer">
+              General food and nutrition suggestions only &mdash; not medical
+              advice. For managing a condition, talk to your doctor or a
+              registered dietitian.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── MODEL TRAINING ─────────── -->
+    <section class="view" id="view-training" hidden>
+
+      <div class="alert alert-error" id="trainErrorBox" hidden></div>
+
+      <div class="select-row">
+        <label class="field-label" for="runSelect">Training run</label>
+        <select id="runSelect" class="select"></select>
+      </div>
+
+      <p class="section-heading">Loss and accuracy curves</p>
+      <div class="chart-grid">
+        <div class="chart-wrap"><img id="lossChart" alt="Loss curve"></div>
+        <div class="chart-wrap"><img id="accChart" alt="Accuracy curve"></div>
+      </div>
+      <p class="caption">
+        Shaded bands: green = head phase (backbone frozen), amber = full
+        fine-tune (all layers). Dashed = validation; solid = training.
+      </p>
+
+      <p class="section-heading" style="margin-top:28px">
+        Per-class accuracy &mdash; 20-class run
+      </p>
+      <div class="chart-wrap">
+        <img id="perClassChart" class="annotated" alt="Per-class accuracy">
+      </div>
+      <p class="caption" id="perClassCaption">
+        Every held-out test image, worst class first. Amber bars fall below
+        the overall accuracy; the dashed line marks it.
+      </p>
+
+      <p class="section-heading" style="margin-top:28px">
+        Confusion matrix &mdash; 20-class run
+      </p>
+      <div class="chart-wrap">
+        <img id="confusionImg" class="annotated"
+             src="/api/confusion-matrix" alt="Confusion matrix">
+      </div>
+      <p class="caption">
+        20&times;20 heatmap. Diagonal = correct predictions.
+        Main off-diagonal pairs: fried_rice &harr; paella, tacos &harr; falafel.
+      </p>
+    </section>
+
+  </main>
+</div>
+
+<script>window.DAILY_GOAL = {{ daily_goal }};</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

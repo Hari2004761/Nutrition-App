@@ -1,0 +1,52 @@
+{
+  "classes": [
+    "pizza",
+    "sushi",
+    "ice_cream",
+    "hamburger",
+    "donuts",
+    "french_fries",
+    "onion_rings",
+    "caesar_salad",
+    "omelette",
+    "chicken_curry",
+    "chicken_wings",
+    "tacos",
+    "samosa",
+    "pancakes",
+    "waffles",
+    "fried_rice",
+    "paella",
+    "falafel",
+    "macaroni_and_cheese",
+    "cheesecake"
+  ],
+  "original_index_to_subset_index": {
+    "76": 0,
+    "95": 1,
+    "58": 2,
+    "53": 3,
+    "31": 4,
+    "40": 5,
+    "68": 6,
+    "11": 7,
+    "67": 8,
+    "18": 9,
+    "20": 10,
+    "96": 11,
+    "85": 12,
+    "72": 13,
+    "100": 14,
+    "44": 15,
+    "71": 16,
+    "36": 17,
+    "62": 18,
+    "17": 19
+  },
+  "counts": {
+    "train": 15000,
+    "test": 5000
+  },
+  "max_train_per_class": 200,
+  "max_test_per_class": 80
+}

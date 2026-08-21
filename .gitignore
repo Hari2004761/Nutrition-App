@@ -1,0 +1,89 @@
+# ─────────────────────────────────────────────────────────────
+# SECRETS — never commit these. Anyone who reads the repository
+# could use the keys, and the Gemini key can cost money.
+# ─────────────────────────────────────────────────────────────
+usda_api_key.txt
+gemini_api_key.txt
+*_api_key.txt
+*.key
+.env
+.env.*
+secrets.json
+credentials.json
+
+# ─────────────────────────────────────────────────────────────
+# PERSONAL — private working notes and AI-assistant files,
+# not part of the deliverable.
+# ─────────────────────────────────────────────────────────────
+NOTES.md
+.claude/
+.claude*
+CLAUDE.md
+CLAUDE.local.md
+.mcp.json
+.aider*
+.cursor/
+.github/copilot-instructions.md
+
+# ─────────────────────────────────────────────────────────────
+# HUGE — datasets, virtual environment, trained weights.
+# All of these can be downloaded or rebuilt from scratch.
+# ─────────────────────────────────────────────────────────────
+data/
+.venv/
+venv/
+env/
+*.pt
+*.pth
+*.onnx
+*.tar.gz
+*.zip
+
+# Training / dataset images — now and anywhere they land in future.
+# Food-101 is a public download; `python src/prepare_data.py` fetches it again.
+food-101/
+food-101*/
+datasets/
+dataset/
+images/
+train/
+val/
+test_images/
+*.jpg
+*.jpeg
+*.JPEG
+*.webp
+*.bmp
+# Sample photos used to demo the pipeline (src/img.png, src/img_1.png, ...)
+src/img*.png
+
+# ─────────────────────────────────────────────────────────────
+# REGENERATED — the project recreates these by itself.
+# ─────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+outputs/per_class_accuracy.json
+outputs/crops/
+.pytest_cache/
+.ipynb_checkpoints/
+*.log
+
+# ─────────────────────────────────────────────────────────────
+# EDITOR AND OPERATING-SYSTEM CLUTTER — personal to this machine.
+# ─────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─────────────────────────────────────────────────────────────
+# KEPT ON PURPOSE (listed here so it is clear these are wanted):
+#   outputs/history.csv            — training results, needed for the graphs
+#   outputs/figures/*.png          — thesis figures
+#   outputs/15class_run/, capped_run/ — earlier runs kept for comparison
+#   requirements.txt               — so the environment can be rebuilt
+# ─────────────────────────────────────────────────────────────
