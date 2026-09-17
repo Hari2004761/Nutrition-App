@@ -3,8 +3,8 @@
     python server.py            → http://127.0.0.1:5000
 
 Presentation layer only: detection, classification, nutrition lookup and chart
-drawing all come from src/. The classifier is loaded once at start-up and
-shared by every request.
+drawing all come from src/. The classifier and the YOLO detector are loaded
+once at start-up and shared by every request.
 """
 import json
 import os
@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parent
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT / "src"))
 
+from detect import _get_yolo                                     # noqa: E402
 from predict import load_model, predict_pil                     # noqa: E402
 from pipeline import run_pipeline, CLASSIFIER_CONF_THRESHOLD    # noqa: E402
 from charts import (                                            # noqa: E402
@@ -41,6 +42,7 @@ from gemini_chat import (                                     # noqa: E402
 
 # ── Paths / constants ────────────────────────────────────────────────────────
 CHECKPOINT    = Path("models/classifier_best.pt")
+YOLO_WEIGHTS  = "yolov8m-oiv7.pt"   # detect_food()'s default, which the pipeline uses
 HISTORY_CSV   = Path("outputs/history.csv")
 CONFUSION_PNG = Path("outputs/figures/confusion_matrix.png")
 PER_CLASS_CACHE = Path("outputs/per_class_accuracy.json")
@@ -60,7 +62,7 @@ MODEL = CLASSES = DEVICE = None
 
 
 def init_model():
-    """Load the MobileNetV3 classifier a single time for the process."""
+    """Load the classifier and the YOLO detector a single time for the process."""
     global MODEL, CLASSES, DEVICE
     if MODEL is not None:
         return
@@ -71,6 +73,8 @@ def init_model():
     print(f"[foodlens] loading classifier on {DEVICE} ...", flush=True)
     MODEL, CLASSES = load_model(str(CHECKPOINT), DEVICE)
     print(f"[foodlens] classifier ready — {len(CLASSES)} classes", flush=True)
+    _get_yolo(YOLO_WEIGHTS)
+    print(f"[foodlens] detector ready — {YOLO_WEIGHTS}", flush=True)
 
 
 def png_response(png_bytes):

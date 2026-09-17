@@ -106,11 +106,21 @@ def drop_container_boxes(dets, img_area, cover_thresh=0.55, min_children=2):
     return keep or dets  # never return nothing
 
 
+_yolo_cache = {}
+
+
+def _get_yolo(weights):
+    """Load a YOLO model once per weights file and reuse it across calls."""
+    if weights not in _yolo_cache:
+        _yolo_cache[weights] = YOLO(weights)
+    return _yolo_cache[weights]
+
+
 def detect_food(image_path, conf_threshold=0.1, weights="yolov8m-oiv7.pt",
                 iou_thresh=0.45, max_det=50, agnostic_nms=False,
                 min_area_frac=0.02, debug=False):
     """Return the candidate food regions in an image, each with its PIL crop."""
-    model = YOLO(weights)
+    model = _get_yolo(weights)
     results = model(image_path, conf=conf_threshold, iou=iou_thresh,
                     max_det=max_det, agnostic_nms=agnostic_nms,
                     verbose=False)[0]
