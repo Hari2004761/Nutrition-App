@@ -14,8 +14,7 @@ from pathlib import Path
 
 import torch
 
-# src/ is this file's directory; add it so sibling modules import cleanly
-# whether pipeline.py is run as a script or imported from app.py at the root.
+# So sibling imports work when run as a script or imported from the project root.
 sys.path.insert(0, str(Path(__file__).parent))
 
 from detect import detect_food            # noqa: E402
@@ -23,24 +22,16 @@ from nutrition import lookup_nutrition    # noqa: E402
 from predict import load_model, predict_pil  # noqa: E402
 
 MODELS = Path("models")
+# The classifier always returns a guess, so anything under this is reported as
+# unrecognized instead: better to miss an item than to name one confidently wrong.
 CLASSIFIER_CONF_THRESHOLD = 0.40
 
 
 def run_pipeline(image_path, model, classes, device, det_conf=0.1, top_k=3):
     """Detect → classify → merge duplicates → nutrition lookup.
 
-    Args:
-        image_path: str or Path — path to the food photo on disk.
-        model:      loaded PyTorch MobileNetV3-Large classifier.
-        classes:    list of class-name strings (from the checkpoint).
-        device:     'cuda' or 'cpu'.
-        det_conf:   YOLO detection confidence threshold (default 0.1).
-        top_k:      number of classifier predictions to keep per region.
-
-    Returns dict with keys:
-        regions       — raw detect_food output (list of dicts with box/crop)
-        merged        — recognised items, merged by label, with nutrition
-        unrecognized  — regions below CLASSIFIER_CONF_THRESHOLD
+    Returns {regions, merged, unrecognized}; a region the classifier is less
+    than CLASSIFIER_CONF_THRESHOLD sure of lands in unrecognized.
     """
     regions = detect_food(str(image_path), conf_threshold=det_conf)
     if not regions:
@@ -64,7 +55,8 @@ def run_pipeline(image_path, model, classes, device, det_conf=0.1, top_k=3):
                 "alts": preds[1:],
             })
 
-    # Merge duplicate predicted labels; keep highest confidence seen
+    # Merged on the classifier's label, not box overlap: two regions that both
+    # come back samosa are one line item ×2, whatever their boxes look like.
     seen = {}
     merged = []
     for r in recognized:

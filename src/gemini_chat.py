@@ -67,11 +67,7 @@ def read_api_key(key_file=_KEY_FILE):
 
 
 def format_meal_context(recognized, totals, unrecognized=None):
-    """Turn an /api/analyze result into a compact block of text for the prompt.
-
-    `recognized` / `totals` are exactly the shapes /api/analyze returns, so the
-    front end can hand its last analysis straight back to the chat endpoint.
-    """
+    """Turn an /api/analyze result into a compact block of text for the prompt."""
     if not recognized:
         return _NO_MEAL
 

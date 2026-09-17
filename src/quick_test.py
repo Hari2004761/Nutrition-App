@@ -2,10 +2,8 @@
 
     python src/quick_test.py
 
-Uses data/food-101/meta/test.txt to pick images the model was evaluated on
-(not training images), so this reflects genuine held-out performance --
-same idea as val_acc during training, but here you SEE each photo's result
-instead of just a summary number.
+Samples only test-split images, so the result reflects genuine held-out
+performance rather than memorised training photos.
 """
 import random
 from pathlib import Path
@@ -67,8 +65,8 @@ def main():
     print(f"{correct}/{len(classes)} correct on this sample "
           f"({100*correct/len(classes):.0f}%)")
     print("\nNote: this is a small, 1-image-per-class spot check, not a "
-          "formal metric -- the real held-out accuracy is the val_acc "
-          "figure from training (89.5%), computed over ~1,200+ images.")
+          "formal metric -- the real figure is src/evaluate.py's 89.7% over "
+          "all 5,000 test images.")
 
 
 if __name__ == "__main__":

@@ -65,6 +65,7 @@ __pycache__/
 *.pyo
 *.pyd
 outputs/per_class_accuracy.json
+outputs/dataset_nutrition.json
 outputs/crops/
 .pytest_cache/
 .ipynb_checkpoints/
@@ -87,3 +88,6 @@ desktop.ini
 #   outputs/15class_run/, capped_run/ — earlier runs kept for comparison
 #   requirements.txt               — so the environment can be rebuilt
 # ─────────────────────────────────────────────────────────────
+
+# Smoke-run training log (sanity checks, not a real run)
+outputs/history_smoke.csv

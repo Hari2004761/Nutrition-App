@@ -1,24 +1,13 @@
-"""Detects multiple food regions on a plate using YOLOv8 (Open Images V7).
+"""Finds candidate food regions on a plate with YOLOv8 (Open Images V7).
 
     python src/detect.py path/to/plate_photo.jpg
     python src/detect.py photo.jpg --conf 0.15     # catch weaker detections
 
-STRATEGY -- class-agnostic detection:
-YOLO's job here is NOT to name the food (the MobileNetV3 classifier does
-that downstream). Its only job is to find SEPARATE REGIONS so a plate with
-rice + chicken + salad becomes three crops instead of one.
-
-So instead of keeping only boxes whose label is on a short food allowlist
-(which throws away most of a real plate -- Open Images has no "onion",
-"chapati", "paneer" etc), we keep EVERY detection except an explicit
-blocklist of clearly non-food objects (hands, cutlery, furniture...).
-Whatever survives is treated as a candidate food region.
-
-Post-processing then cleans up raw YOLO output:
-  1. Cross-class NMS -- YOLO often fires several overlapping boxes on the
-     same region ("Food" + "Salad" + "Bowl"); keep the best one per region.
-  2. Container suppression -- if one huge box (the whole plate/tray)
-     contains several smaller boxes, drop the huge one, keep the items.
+Class-agnostic by design: YOLO only has to separate regions — the classifier
+names them — and Open Images has no label for most dishes, so every detection
+is kept except an explicit non-food blocklist. Post-processing then applies
+cross-class NMS (one box per region) and drops container boxes (a whole plate
+or tray) that hold several smaller ones.
 """
 import argparse
 
@@ -26,9 +15,8 @@ import cv2
 from PIL import Image
 from ultralytics import YOLO
 
-# Open Images V7 labels that are definitely NOT edible. Everything the model
-# detects that is NOT in here becomes a candidate food region -- that's the
-# whole point: we cannot allowlist foods we don't know the names of.
+# Open Images labels that are never edible. Everything NOT listed here counts
+# as a candidate region — the dishes we care about have no labels to allowlist.
 NON_FOOD = {
     # people
     "Person", "Man", "Woman", "Boy", "Girl", "Human face", "Human hand",
@@ -121,6 +109,7 @@ def drop_container_boxes(dets, img_area, cover_thresh=0.55, min_children=2):
 def detect_food(image_path, conf_threshold=0.1, weights="yolov8m-oiv7.pt",
                 iou_thresh=0.45, max_det=50, agnostic_nms=False,
                 min_area_frac=0.02, debug=False):
+    """Return the candidate food regions in an image, each with its PIL crop."""
     model = YOLO(weights)
     results = model(image_path, conf=conf_threshold, iou=iou_thresh,
                     max_det=max_det, agnostic_nms=agnostic_nms,
@@ -129,7 +118,6 @@ def detect_food(image_path, conf_threshold=0.1, weights="yolov8m-oiv7.pt",
     img = Image.open(image_path).convert("RGB")
     img_area = img.width * img.height
 
-    # --- Stage 0: everything raw from YOLO ---
     raw = []
     for box in results.boxes:
         label = results.names[int(box.cls)]
@@ -149,7 +137,6 @@ def detect_food(image_path, conf_threshold=0.1, weights="yolov8m-oiv7.pt",
             print(f"  {d['yolo_label']:<30} conf={d['confidence']:<6} "
                   f"box=({x1},{y1},{x2},{y2})  size={x2-x1}x{y2-y1}")
 
-    # --- Stage 1: NON_FOOD blocklist ---
     after_blocklist = []
     blocklist_removed = []
     for d in raw:
@@ -176,7 +163,6 @@ def detect_food(image_path, conf_threshold=0.1, weights="yolov8m-oiv7.pt",
             print(f"    {d['yolo_label']:<30} conf={d['confidence']:<6} "
                   f"box=({x1},{y1},{x2},{y2})")
 
-    # --- Stage 1b: minimum area filter ---
     min_px = img_area * min_area_frac
     after_area = [d for d in after_blocklist
                   if (d["box"][2]-d["box"][0]) * (d["box"][3]-d["box"][1]) >= min_px]
@@ -201,7 +187,6 @@ def detect_food(image_path, conf_threshold=0.1, weights="yolov8m-oiv7.pt",
                 print(f"    {d['yolo_label']:<30} conf={d['confidence']:<6} "
                       f"box=({x1},{y1},{x2},{y2})")
 
-    # --- Stage 2: cross-class NMS ---
     after_nms = cross_class_nms(after_area)
     nms_removed = [d for d in after_area if d not in after_nms]
 
@@ -222,7 +207,6 @@ def detect_food(image_path, conf_threshold=0.1, weights="yolov8m-oiv7.pt",
             print(f"    {d['yolo_label']:<30} conf={d['confidence']:<6} "
                   f"box=({x1},{y1},{x2},{y2})")
 
-    # --- Stage 3: container suppression ---
     after_container = drop_container_boxes(after_nms, img_area)
     container_removed = [d for d in after_nms if d not in after_container]
 
@@ -253,6 +237,7 @@ def detect_food(image_path, conf_threshold=0.1, weights="yolov8m-oiv7.pt",
 
 def show_preview(image_path, dets,
                  window="Food detection -- press any key to close"):
+    """Draw the detected regions on the photo and show it in an OpenCV window."""
     img = cv2.imread(str(image_path))
     if img is None:
         print("(could not open image for preview)")

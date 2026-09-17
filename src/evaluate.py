@@ -2,11 +2,9 @@
 
     python src/evaluate.py
 
-Runs the trained classifier across EVERY test-split image for all 20
-classes (~5,000 images, not just one sample each) -- this is the real,
-statistically meaningful evaluation. Saves a confusion matrix figure
-for the thesis and prints which classes are weakest and what they get
-confused with.
+Runs the classifier over every held-out test image for all 20 classes (~5,000),
+saves the confusion-matrix figure and prints which classes are weakest and what
+they get confused with.
 """
 from pathlib import Path
 
@@ -32,6 +30,7 @@ eval_tf = transforms.Compose([
 
 
 class RemappedTest(torch.utils.data.Dataset):
+    """Food-101 test subset restricted and remapped to the project's classes."""
     def __init__(self, base, indices, label_map, transform):
         self.base, self.indices = base, indices
         self.label_map, self.transform = label_map, transform
@@ -81,8 +80,7 @@ def compute_confusion(model, classes, device, batch_size=64, num_workers=4,
 def per_class_report(classes, confusion):
     """Per-class accuracy + top confusion target, worst class first.
 
-    The single source of truth for the per-class numbers: the terminal
-    table below, and the web front end's per-class chart, both read this.
+    Both the terminal table and the front end's per-class chart read this.
     """
     confusion = np.asarray(confusion)
     per_class_acc = confusion.diagonal() / confusion.sum(axis=1)

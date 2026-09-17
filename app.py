@@ -20,8 +20,7 @@ sys.path.insert(0, str(_SRC))
 
 from predict import load_model                                  # noqa: E402
 from pipeline import run_pipeline, CLASSIFIER_CONF_THRESHOLD   # noqa: E402
-# Palette, chart builders and box drawing live in src/charts.py so the
-# Streamlit app and the Flask back end (server.py) share one implementation.
+# Palette, chart builders and box drawing are shared with server.py via charts.py.
 from charts import (                                            # noqa: E402
     BLUE, NAVY, SLATE, BORDER, BG, GREEN, AMBER, RED, BOX_COLORS,
     annotate_image, make_macro_pie, make_calorie_bar,
@@ -34,7 +33,6 @@ HISTORY_CSV   = Path("outputs/history.csv")
 CONFUSION_PNG = Path("outputs/figures/confusion_matrix.png")
 DAILY_GOAL    = 2000
 
-# ── Page config ───────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="FoodLens",
     page_icon="🍽",
@@ -93,9 +91,7 @@ header[data-testid="stHeader"] {
     overflow: visible !important;
 }
 
-/* Sidebar collapse/expand control — pinned to a fixed screen position,
-   sized and placed to sit in the same visual row as the FoodLens logo,
-   near the right edge of the sidebar. */
+/* Sidebar collapse control — fixed position so it lines up with the logo row. */
 [data-testid="stExpandSidebarButton"],
 [data-testid="stSidebarCollapseButton"] {
     position: fixed !important;
@@ -139,13 +135,8 @@ header[data-testid="stHeader"] {
 [data-testid="stAppViewContainer"],
 .main { background: #F8FAFC !important; }
 
-/* ── KILL STREAMLIT'S DEFAULT INTER-ELEMENT SPACING IN SIDEBAR ──── */
-/* Streamlit automatically adds gaps/margins between each element placed in
-   the sidebar (every st.markdown / st.radio call gets its own spaced
-   wrapper). This stacking is the most likely real cause of the persistent
-   gap above "FoodLens" that survived fixing the header/toolbar alone.
-   Reset all of it to zero so the logo sits right at the sidebar's own
-   padding-top, with nothing extra added on top of it. */
+/* Streamlit spaces every sidebar element; zeroing that lets the logo sit at the
+   sidebar's own padding-top. */
 section[data-testid="stSidebar"] [data-testid="stVerticalBlock"],
 section[data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"],
 section[data-testid="stSidebar"] [data-testid="stElementContainer"],
@@ -589,9 +580,7 @@ if "analysis_file_key" not in st.session_state:
     st.session_state.analysis_file_key = None
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# SIDEBAR
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Sidebar ──────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("""
 <div class="sb-logo">
@@ -617,9 +606,7 @@ with st.sidebar:
 """, unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: FOOD ANALYSIS
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Page: Food Analysis ──────────────────────────────────────────────────────
 if "Food Analysis" in page:
 
     st.markdown('<div class="page-header"><p class="page-title">Food Analysis</p></div>',
@@ -632,7 +619,6 @@ if "Food Analysis" in page:
 
     model, classes, device = load_classifier()
 
-    # ── Upload area ───────────────────────────────────────────────────────────
     uploaded = st.file_uploader(
         "Upload a food photo",
         type=["jpg", "jpeg", "png"],
@@ -658,7 +644,6 @@ if "Food Analysis" in page:
         # File identity key (name + size — cheap, no need to hash content)
         file_key = f"{uploaded.name}_{uploaded.size}"
 
-        # Clear stale result if a new file was selected
         if st.session_state.analysis_file_key != file_key:
             st.session_state.analysis_result   = None
             st.session_state.analysis_pil      = None
@@ -705,18 +690,15 @@ if "Food Analysis" in page:
                     )
                 annotated = annotate_image(pil_img, regions, region_labels)
 
-                # Totals
                 total_kcal = sum((e["nutrition"]["calories"] or 0) * e["count"] for e in merged)
                 total_pro  = sum((e["nutrition"]["protein"]  or 0) * e["count"] for e in merged)
                 total_carb = sum((e["nutrition"]["carbs"]    or 0) * e["count"] for e in merged)
                 total_fat  = sum((e["nutrition"]["fat"]      or 0) * e["count"] for e in merged)
 
-                # Summary metric row
                 if merged:
                     st.markdown(summary_metrics(total_kcal, total_pro, total_carb, total_fat),
                                 unsafe_allow_html=True)
 
-                # Annotated image | food cards
                 st.markdown('<p class="section-heading">Detection results</p>',
                             unsafe_allow_html=True)
                 col_img, col_cards = st.columns([1.1, 1], gap="large")
@@ -735,7 +717,6 @@ if "Food Analysis" in page:
                     for u in unrecognized:
                         st.markdown(unrecognized_card(u), unsafe_allow_html=True)
 
-                # Charts
                 if merged:
                     st.markdown('<p class="section-heading">Meal charts</p>',
                                 unsafe_allow_html=True)
@@ -751,7 +732,6 @@ if "Food Analysis" in page:
                             st.pyplot(fig_bar, use_container_width=True)
                             plt.close(fig_bar)
 
-                # Daily goal
                 if merged:
                     st.markdown('<p class="section-heading">Daily calorie goal</p>',
                                 unsafe_allow_html=True)
@@ -777,9 +757,7 @@ if "Food Analysis" in page:
 </div>""", unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: MODEL TRAINING GRAPHS
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Page: Model Training Graphs ──────────────────────────────────────────────
 elif "Model Training" in page:
 
     st.markdown('<div class="page-header"><p class="page-title">Model Training Graphs</p></div>',

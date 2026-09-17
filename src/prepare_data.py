@@ -13,11 +13,9 @@ from torchvision.datasets import Food101
 DATA_ROOT = Path("data")
 OUT = Path("outputs")
 
-# 20 classes -- revised from an earlier 15-class set to favor globally
-# popular, vegetarian, and chicken-based dishes over heavier meat/seafood
-# classes. One deliberate confusable pair kept for an interesting confusion
-# matrix: fried_rice / paella (both rice-based, visually similar). samosa
-# and chicken_curry are the only 2 genuinely Indian dishes Food-101 offers.
+# 20 of the 101 Food-101 classes: globally popular dishes, a vegetarian/chicken
+# mix, one deliberately confusable pair (fried_rice / paella), and the only two
+# Indian dishes Food-101 offers.
 CLASSES = [
     "pizza", "sushi", "ice_cream", "hamburger", "donuts",
     "french_fries", "onion_rings", "caesar_salad", "omelette",
@@ -26,10 +24,11 @@ CLASSES = [
     "falafel", "macaroni_and_cheese", "cheesecake",
 ]
 
-# Cap on images used per class. Food-101 has 750 train / 250 test per class
-# natively; None uses everything. Lower this for faster iteration while
-# you're still debugging the pipeline -- raise it later for a stronger
-# final training run once everything works end to end.
+# Per-class cap for quick training runs; None uses the whole pool. The cap
+# applies to the training set only — train_classifier.py holds 100 images per
+# class out of the training pool for validation before any cap is applied, and
+# never touches the test split. MAX_TEST_PER_CLASS is recorded for reference;
+# evaluate.py always scores on the full 250/class test split.
 MAX_TRAIN_PER_CLASS = 200
 MAX_TEST_PER_CLASS = 80
 

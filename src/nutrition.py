@@ -21,9 +21,8 @@ from pathlib import Path
 _API_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
 _KEY_FILE = Path("usda_api_key.txt")
 
-# Realistic single-serving sizes in grams for each of the 20 known classes.
-# USDA returns nutrients per 100g; these scale the result to what a person
-# would actually eat in one sitting.
+# Realistic single-serving portions in grams; USDA reports per 100g, so these
+# scale it to what one person actually eats in a sitting.
 SERVING_SIZES = {
     "pizza":               107,  # 1 slice (~1/8 of a 14" pizza)
     "sushi":               160,  # 6-piece order
@@ -47,9 +46,8 @@ SERVING_SIZES = {
     "cheesecake":          125,  # 1 slice
 }
 
-# Fallback table: approximate nutrition PER SERVING (already scaled).
-# Used when the API is unavailable, the key is missing, or no usable
-# match is returned. Values are rounded real-world averages.
+# Approximate per-serving values, used when the API is unreachable, the key is
+# missing, or no usable match comes back.
 _FALLBACK = {
     "pizza":               {"calories": 285, "protein": 12.0, "carbs": 36.0, "fat": 10.0},
     "sushi":               {"calories": 250, "protein": 12.0, "carbs": 40.0, "fat":  5.0},
@@ -117,10 +115,7 @@ def _read_api_key() -> str | None:
 
 
 def _extract_nutrients(food_item: dict) -> dict | None:
-    """
-    Extract kcal, protein, carbs, fat per 100g from a USDA food search result.
-    Returns a 4-key dict or None if any value is missing.
-    """
+    """Per-100g kcal/protein/carbs/fat from a USDA result, or None if incomplete."""
     wanted = {
         "calories": (("energy",), ("kj",)),          # match name, exclude if unit kJ
         "protein":  (("protein",), ()),
@@ -148,45 +143,38 @@ _NON_DISH_WORDS = {
     "concentrate", "instant", "dry", "dried", "frozen",
 }
 
-# FNDDS restaurant-chain records follow "BRAND NAME, item" — all-caps word(s)
-# before a comma (e.g. "TACO BELL, Original Taco", "DENNY'S, onion rings").
-# Used in _score_match to penalize but not disqualify these entries.
+# FNDDS restaurant-chain records read "BRAND NAME, item" ("TACO BELL, Original
+# Taco"); _score_match penalises them so generic entries win.
 _CHAIN_RE = re.compile(r"^[A-Z]{2,}[\w' ]*,")
 
 
 def _score_match(description: str, query: str) -> int:
-    """
-    Score how well a USDA food description matches the search query.
-    Higher = better. Used to prefer plain generic entries over modified
-    variants (e.g. pick 'Pizza' over 'Dessert pizza' for query 'pizza').
-    Returns 0 for condiments/sauces/mixes that share a keyword with the food
-    but are clearly not the dish itself (e.g. 'Pancake syrup').
-    """
+    """Higher = a better match. Prefers plain generic entries ('Pizza' over
+    'Dessert pizza') and returns 0 for things that merely share a keyword."""
     d = description.lower().strip()
     q = query.lower().strip()
 
-    # Disqualify non-dish entries that share a keyword (syrup, sauce, mix…).
-    # Strip punctuation from each word so "sauce," doesn't slip through.
+    # Things that merely share a keyword with the dish (syrup, sauce, mix…).
+    # Punctuation is stripped per word so "sauce," cannot slip through.
     d_words = {w.strip(",.;:()") for w in d.split()}
     if _NON_DISH_WORDS & d_words:
         return 0
 
-    # Penalize restaurant-chain FNDDS records ("TACO BELL, ...", "DENNY'S, ...").
-    # They're a last resort, not disqualified — subtract 2 but floor at 1.
+    # Chain records are a last resort, not disqualified: penalised, floored at 1.
     is_chain = bool(_CHAIN_RE.match(description))
 
     q_base = q.rstrip("s")      # rough singular: "pancakes" -> "pancake"
     d_base = d.rstrip("s")
     if d_base == q_base:
-        score = 5                # exact / singular match
+        score = 5
     elif d_base.startswith(q_base + ","):
         score = 4                # "Pizza, cheese" style
     else:
         first_word = d.split()[0].rstrip("s") if d else ""
         if first_word == q_base.split()[0]:
-            score = 3            # description starts with query keyword
+            score = 3
         elif q_base in d:
-            score = 2            # query appears somewhere in description
+            score = 2
         else:
             score = 1
 
@@ -196,11 +184,9 @@ def _score_match(description: str, query: str) -> int:
 def _usda_query(query: str, api_key: str) -> list[dict]:
     """Call USDA search API; return list of food items or raise on error.
 
-    Tries the SR Legacy + Survey (FNDDS) filter first (excludes branded
-    products for cleaner generic matches). Some queries cause the USDA API
-    to return a 400 with the dataType filter active — a known server-side
-    quirk — so if that happens we silently retry without the filter and
-    rely on _score_match to prefer generic results over branded ones.
+    Tries the SR Legacy + Survey (FNDDS) filter first for clean generic matches.
+    Some queries 400 when that filter is set — a server-side quirk — so the call
+    is retried unfiltered, leaving _score_match to prefer generic over branded.
     """
     filtered = urllib.parse.urlencode([
         ("query",    query),
@@ -227,25 +213,15 @@ def _usda_query(query: str, api_key: str) -> list[dict]:
 
 
 def lookup_nutrition(food_name: str) -> dict:
-    """
-    Return nutrition info for a single serving of the named food.
+    """Nutrition for one serving of the named food.
 
-    Return dict keys:
-        food        original query string
-        matched     food name that was used (USDA description, fallback key, or None)
-        serving_g   portion size in grams
-        calories    kcal per serving (float or None)
-        protein     grams protein per serving (float or None)
-        carbs       grams carbohydrate per serving (float or None)
-        fat         grams fat per serving (float or None)
-        calories_per_100g
-                    kcal per 100g — the unscaled energy density (float or None)
-        source      'api' | 'fallback' | 'none'
+    Always returns the same keys (calories/protein/carbs/fat per serving, plus
+    serving_g and calories_per_100g); 'source' says whether the numbers came
+    from the USDA API, the fallback table, or nowhere at all.
     """
     key = _canonical_key(food_name)
     serving_g = SERVING_SIZES.get(key, 150)  # 150g default for unknown foods
 
-    # ---- Try USDA API ----
     api_key = _read_api_key()
     if api_key:
         try:
@@ -263,15 +239,14 @@ def lookup_nutrition(food_name: str) -> dict:
                 "paella":       "paella seafood rice",
                 "omelette":     "egg omelet plain",
             }
-            # For some classes the only FNDDS generic is systematically wrong
-            # (e.g. caesar salad only has a no-dressing entry, which understates
-            # real calories). Skip the API for these and use the fallback table.
+            # For a few classes the only FNDDS generic is systematically wrong (the
+            # caesar salad entry has no dressing), so skip the API and use the table.
             _PREFER_FALLBACK = {"caesar_salad"}
             api_query = _QUERY_OVERRIDES.get(key, api_query)
             if key not in _PREFER_FALLBACK:
                 foods = _usda_query(api_query, api_key)
             else:
-                foods = []  # FNDDS generic is misleading for this class; use fallback
+                foods = []
             foods.sort(
                 key=lambda f: _score_match(f.get("description", ""), api_query),
                 reverse=True,
@@ -288,8 +263,7 @@ def lookup_nutrition(food_name: str) -> dict:
                         "protein":   round(nutrients["protein"]  * scale, 1),
                         "carbs":     round(nutrients["carbs"]    * scale, 1),
                         "fat":       round(nutrients["fat"]      * scale, 1),
-                        # USDA reports per 100g; keep that density alongside
-                        # the portion-scaled figures instead of discarding it.
+                        # energy density, kept alongside the scaled figures
                         "calories_per_100g": round(nutrients["calories"], 1),
                         "source":    "api",
                     }
@@ -302,11 +276,9 @@ def lookup_nutrition(food_name: str) -> dict:
     else:
         print(f"[nutrition] {_KEY_FILE} not found — using fallback only", file=sys.stderr)
 
-    # ---- Fallback table ----
     if key in _FALLBACK:
         entry = _FALLBACK[key]
-        # Fallback values are already per serving, so derive the density
-        # back out of the portion size.
+        # Already per serving, so the density has to be derived back out.
         return {
             "food":      food_name,
             "matched":   f"fallback ({key})",
@@ -316,7 +288,6 @@ def lookup_nutrition(food_name: str) -> dict:
             "source":    "fallback",
         }
 
-    # ---- No data at all ----
     return {
         "food":      food_name,
         "matched":   None,

@@ -1,12 +1,8 @@
 """Shared presentation helpers — palette, matplotlib figures, box drawing.
 
-Extracted verbatim from the original Streamlit app.py so that both the
-Streamlit front end (app.py) and the Flask back end (server.py) render the
-exact same charts and annotated images from one implementation.
-
-Nothing here knows about Streamlit or Flask: every function returns a plain
-matplotlib Figure or PIL Image, and fig_to_png_bytes / fig_to_base64 turn
-those into bytes for whichever transport the caller needs.
+Used by both front ends (app.py and server.py) so they render identical charts
+from one implementation. Nothing here imports Streamlit or Flask: every function
+returns a plain matplotlib Figure or PIL Image.
 """
 import base64
 import io
@@ -16,10 +12,11 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.patheffects as pe
+from matplotlib.lines import Line2D
 import pandas as pd
 from PIL import ImageDraw
 
-# ── Palette (strictly limited per spec) ──────────────────────────────────────
+# ── Palette ──────────────────────────────────────────────────────────────────
 BLUE   = "#2563EB"
 NAVY   = "#0F172A"
 SLATE  = "#64748B"
@@ -29,7 +26,6 @@ GREEN  = "#16A34A"
 AMBER  = "#D97706"
 RED    = "#DC2626"
 
-# Chart box-color cycle
 BOX_COLORS = [GREEN, BLUE, AMBER, "#7C3AED", "#0EA5E9", RED]
 
 HISTORY_CSV = Path("outputs/history.csv")
@@ -126,7 +122,19 @@ def make_calorie_bar(merged):
 
 
 # ── Training history helpers ──────────────────────────────────────────────────
+# One label per run in outputs/history.csv, oldest first. Runs 1-3 validated on
+# Food-101's test split, so their "val acc" is really a test score the checkpoint
+# was also selected on; run 4 is the first with a held-out validation set.
+RUN_LABELS = [
+    "15-class capped (200/class — 84.7%, val = test split)",
+    "15-class full-data (750/class — 89.5%, val = test split)",
+    "20-class full-data (750/class — 90.7%, val = test split)",
+    "20-class, held-out val (650/class — 85.0% val, 89.7% test)",
+]
+
+
 def load_history(history_csv=HISTORY_CSV):
+    """Split history.csv into runs and label them, oldest first."""
     df = pd.read_csv(history_csv)
     runs, current = [], []
     for _, row in df.iterrows():
@@ -135,19 +143,22 @@ def load_history(history_csv=HISTORY_CSV):
                 runs.append(pd.DataFrame(current).reset_index(drop=True))
                 current = []
             continue
-        if (row["phase"] == "head" and int(row["epoch"]) == 1
-                and current and current[-1]["phase"] == "full"):
+        # A run always opens with head epoch 1, so that row starts a new one
+        # whatever came before it — a finished run or one that was interrupted.
+        if row["phase"] == "head" and int(row["epoch"]) == 1 and current:
             runs.append(pd.DataFrame(current).reset_index(drop=True))
             current = []
         current.append(row.to_dict())
     if current:
         runs.append(pd.DataFrame(current).reset_index(drop=True))
-    labels = [
-        "15-class capped (200 imgs/class — 84.7% val acc)",
-        "15-class full-data (750 imgs/class — 89.5% val acc)",
-        "20-class full-data (750 imgs/class — 90.7% val acc)",
-    ]
-    return list(zip(labels[: len(runs)], runs))
+
+    # Any run past the end of RUN_LABELS still gets a name, so a new run shows
+    # up in the picker instead of being silently dropped by a short label list.
+    labels = list(RUN_LABELS[:len(runs)])
+    for i in range(len(labels), len(runs)):
+        best = runs[i]["val_acc"].max() * 100
+        labels.append(f"run {i + 1} ({len(runs[i])} epochs — {best:.1f}% val acc)")
+    return list(zip(labels, runs))
 
 
 def training_plot(df, y_train, y_val, title, ylabel, pct=False):
@@ -181,13 +192,9 @@ def training_plot(df, y_train, y_val, title, ylabel, pct=False):
 def make_per_class_accuracy_bar(rows, overall_acc):
     """Horizontal per-class accuracy bars, weakest class at the top.
 
-    `rows` is exactly what evaluate.per_class_report() returns in its
-    "classes" key -- {name, accuracy, confused_with, confused_count},
-    already sorted worst-to-best. Nothing is recomputed here; the numbers
-    come straight from the evaluation.
-
-    Bars below the overall accuracy are amber, at-or-above are blue, and a
-    dashed line marks the overall figure.
+    `rows` is evaluate.per_class_report()'s "classes" list, already sorted
+    worst-first; nothing is recomputed here. Bars below the overall accuracy are
+    amber, at or above it blue, and the dashed line marks the overall figure.
     """
     if not rows:
         return None
@@ -204,8 +211,7 @@ def make_per_class_accuracy_bar(rows, overall_acc):
         label = ax.text(bar.get_width() + 1.0, bar.get_y() + bar.get_height() / 2,
                         f"{acc:.1f}%", va="center", ha="left",
                         fontsize=9, color=NAVY, fontweight="600", zorder=4)
-        # bars near the overall line would otherwise have the dashed line
-        # running straight through their value label
+        # keeps the dashed overall line from cutting through the value label
         label.set_path_effects([pe.withStroke(linewidth=3, foreground="white")])
 
     ax.axvline(overall_pct, color=NAVY, lw=1.4, linestyle="--", alpha=0.85)
@@ -225,7 +231,194 @@ def make_per_class_accuracy_bar(rows, overall_acc):
     return fig
 
 
-# ── Transport helpers (used by the Flask back end) ───────────────────────────
+# ── Dataset-level nutrition charts ───────────────────────────────────────────
+# These describe the 20 classes themselves; rows come from dataset_nutrition.py.
+_MACRO_COLORS = {"protein": GREEN, "carbs": AMBER, "fat": RED}
+
+
+def _place_labels(ax, xs, ys, labels, fontsize=8):
+    """Label each scatter point, nudged to the first slot that stays clear.
+    matplotlib has no label-placement pass, so each label tries a ring of candidate
+    offsets and keeps the first that hits neither a marker nor a placed label; where
+    every candidate collides, the least-overlapping one wins.
+    """
+    fig = ax.figure
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+
+    taken = []
+    for x, y in zip(xs, ys):
+        px, py = ax.transData.transform((x, y))
+        taken.append((px - 5, py - 5, px + 5, py + 5))       # the marker itself
+
+    candidates = [(8, 4), (8, -9), (-8, 4), (-8, -9), (0, 10), (0, -14),
+                  (16, 11), (-16, -15), (13, -18), (-13, 14)]
+
+    def overlap(a, b):
+        dx = min(a[2], b[2]) - max(a[0], b[0])
+        dy = min(a[3], b[3]) - max(a[1], b[1])
+        return dx * dy if dx > 0 and dy > 0 else 0.0
+
+    def padded(ann):
+        bb = ann.get_window_extent(renderer)
+        return (bb.x0 - 2, bb.y0 - 2, bb.x1 + 2, bb.y1 + 2)
+
+    frame = ax.get_window_extent(renderer)
+    bounds = (frame.x0, frame.y0, frame.x1, frame.y1)
+
+    def spill(box):
+        """How far a label pokes outside the plotting area, as an area."""
+        inside = overlap(box, bounds)
+        return (box[2] - box[0]) * (box[3] - box[1]) - inside
+
+    for x, y, text in zip(xs, ys, labels):
+        ann = ax.annotate(text, xy=(x, y), xytext=candidates[0],
+                          textcoords="offset points", fontsize=fontsize,
+                          color=NAVY, zorder=5)
+        best, best_cost = candidates[0], None
+        for cand in candidates:
+            ann.set_ha("right" if cand[0] < 0 else "left")
+            ann.xyann = cand
+            box = padded(ann)
+            cost = sum(overlap(box, t) for t in taken) + spill(box) * 2
+            if cost == 0:
+                best, best_cost = cand, 0.0
+                break
+            if best_cost is None or cost < best_cost:
+                best, best_cost = cand, cost
+        ann.set_ha("right" if best[0] < 0 else "left")
+        ann.xyann = best
+        taken.append(padded(ann))
+
+
+def make_calorie_protein_scatter(rows):
+    """Calories vs protein per 100g, one labelled point per class.
+
+    Per 100g rather than per serving so portion size cannot distort the
+    picture: this is about what each dish *is*, not how much of it is served.
+    """
+    pts = [r for r in rows
+           if r.get("calories_per_100g") and r.get("protein_per_100g") is not None]
+    if not pts:
+        return None
+
+    xs = [r["calories_per_100g"] for r in pts]
+    ys = [r["protein_per_100g"] for r in pts]
+    colors = []
+    for r in pts:
+        macro = r.get("macro_pct") or {}
+        dominant = max(macro, key=macro.get) if macro else "carbs"
+        colors.append(_MACRO_COLORS.get(dominant, BLUE))
+
+    fig, ax = _base_fig(8.6, 5.6)
+    ax.grid(True, color=BORDER, linewidth=0.8, alpha=0.8)
+    ax.set_axisbelow(True)
+    ax.scatter(xs, ys, s=80, c=colors, edgecolor="white", linewidth=1.3, zorder=3)
+
+    ax.set_xlim(0, max(xs) * 1.20)
+    ax.set_ylim(0, max(ys) * 1.28)
+    ax.set_xlabel("Calories per 100g (kcal)", fontsize=10, color=SLATE, labelpad=6)
+    ax.set_ylabel("Protein per 100g (g)", fontsize=10, color=SLATE, labelpad=6)
+    ax.set_title("Calories vs protein — all 20 classes",
+                 fontsize=13, fontweight="bold", color=NAVY, pad=12)
+
+    handles = [Line2D([], [], marker="o", linestyle="none", markersize=8,
+                      markerfacecolor=_MACRO_COLORS[k], markeredgecolor="white",
+                      label=f"mostly {k}")
+               for k in ("protein", "carbs", "fat")
+               if _MACRO_COLORS[k] in colors]
+    legend = ax.legend(handles=handles, loc="upper left", frameon=True,
+                       fontsize=9, labelcolor=NAVY, borderpad=0.6)
+    legend.get_frame().set_edgecolor(BORDER)
+    legend.get_frame().set_facecolor("white")
+
+    _place_labels(ax, xs, ys, [r["label"] for r in pts])
+    plt.tight_layout(pad=1.0)
+    return fig
+
+
+def make_macro_composition_bar(rows, sort_key="carbs"):
+    """Protein / carbs / fat as a share of each class's calories.
+
+    Percentages, not grams: a 60g samosa and a 250g curry are not comparable by
+    weight, but their composition is. 4/4/9 kcal per gram, so every bar totals 100%.
+    """
+    pts = [r for r in rows if r.get("macro_pct")]
+    if not pts:
+        return None
+    pts = sorted(pts, key=lambda r: r["macro_pct"].get(sort_key, 0))
+    names = [r["label"] for r in pts]
+
+    fig, ax = _base_fig(8.6, max(4.0, len(pts) * 0.36 + 1.8))
+    left = [0.0] * len(pts)
+    for key, title in (("protein", "Protein"), ("carbs", "Carbs"), ("fat", "Fat")):
+        vals = [r["macro_pct"].get(key, 0.0) for r in pts]
+        ax.barh(names, vals, left=left, height=0.64, label=title,
+                color=_MACRO_COLORS[key], edgecolor="white", linewidth=0.8)
+        for i, (val, start) in enumerate(zip(vals, left)):
+            if val >= 9:                       # skip slivers with no room
+                ax.text(start + val / 2, i, f"{val:.0f}", ha="center", va="center",
+                        fontsize=8, color="white", fontweight="bold", zorder=4)
+        left = [s + v for s, v in zip(left, vals)]
+
+    ax.set_xlim(0, 100)
+    ax.set_xticks([0, 20, 40, 60, 80, 100])
+    ax.xaxis.set_major_formatter(lambda v, _p: f"{v:.0f}%")
+    ax.invert_yaxis()
+    ax.tick_params(axis="y", labelsize=9)
+    ax.set_xlabel("Share of calories", fontsize=10, color=SLATE, labelpad=6)
+    ax.set_title(f"Macro composition — sorted by {sort_key} share",
+                 fontsize=13, fontweight="bold", color=NAVY, pad=26)
+    legend = ax.legend(loc="lower left", bbox_to_anchor=(0, 1.005), ncol=3,
+                       frameon=False, fontsize=9, labelcolor=NAVY)
+    for text in legend.get_texts():
+        text.set_color(NAVY)
+    plt.tight_layout(pad=1.0)
+    return fig
+
+
+def make_calorie_density_bar(rows):
+    """Calories per 100g for every class, densest first.
+
+    Amber marks classes above the average (dashed line), blue those at or below —
+    the same convention as the per-class accuracy chart.
+    """
+    pts = [r for r in rows if r.get("calories_per_100g")]
+    if not pts:
+        return None
+    pts = sorted(pts, key=lambda r: r["calories_per_100g"], reverse=True)
+    names = [r["label"] for r in pts]
+    vals = [r["calories_per_100g"] for r in pts]
+    mean = sum(vals) / len(vals)
+    colors = [AMBER if v > mean else BLUE for v in vals]
+
+    fig, ax = _base_fig(8.6, max(3.4, len(pts) * 0.34 + 1.5))
+    bars = ax.barh(names, vals, color=colors, height=0.62,
+                   edgecolor="white", linewidth=0)
+    span = max(vals)
+    for bar, val in zip(bars, vals):
+        label = ax.text(bar.get_width() + span * 0.015,
+                        bar.get_y() + bar.get_height() / 2, f"{val:.0f}",
+                        va="center", ha="left", fontsize=9, color=NAVY,
+                        fontweight="600", zorder=4)
+        # keeps the dashed average line from cutting through the value label
+        label.set_path_effects([pe.withStroke(linewidth=3, foreground="white")])
+
+    ax.axvline(mean, color=NAVY, lw=1.4, linestyle="--", alpha=0.85)
+    ax.annotate(f"average {mean:.0f}", xy=(mean, 1.0),
+                xycoords=("data", "axes fraction"), xytext=(5, -11),
+                textcoords="offset points", fontsize=9, color=NAVY,
+                fontweight="600")
+    ax.invert_yaxis()
+    ax.set_xlim(0, span * 1.12)
+    ax.tick_params(axis="y", labelsize=9)
+    ax.set_xlabel("Calories per 100g (kcal)", fontsize=10, color=SLATE, labelpad=6)
+    ax.set_title("Calorie density — most to least",
+                 fontsize=13, fontweight="bold", color=NAVY, pad=12)
+    plt.tight_layout(pad=1.0)
+    return fig
+
+
 def fig_to_png_bytes(fig, dpi=140):
     """Render a matplotlib figure to PNG bytes and close it."""
     buf = io.BytesIO()

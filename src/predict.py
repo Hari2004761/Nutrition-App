@@ -1,10 +1,6 @@
-"""Test the trained classifier on a single image.
+"""Run the trained classifier on one image and print its top predictions.
 
     python src/predict.py path/to/food_photo.jpg
-
-Loads models/classifier_best.pt (whichever run saved it last -- currently
-your full-data 89.5% run) and prints the top predictions with confidence
-scores, so you can sanity-check whether the model is actually right.
 """
 import argparse
 from pathlib import Path
@@ -26,6 +22,7 @@ eval_tf = transforms.Compose([
 
 
 def load_model(checkpoint_path, device):
+    """Load a checkpoint and return (model, classes) ready for inference."""
     ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
     classes = ckpt["classes"]
 

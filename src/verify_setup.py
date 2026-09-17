@@ -1,8 +1,9 @@
+"""Environment check: Python, PyTorch/CUDA, and the packages the project needs."""
+
 import sys
 
 print(f"Python: {sys.version}")
 
-# --- PyTorch / CUDA ---
 try:
     import torch
     print(f"PyTorch: {torch.__version__}")
@@ -22,7 +23,6 @@ except ImportError as e:
     print(f"PyTorch import failed: {e}")
     sys.exit(1)
 
-# --- Other packages ---
 for pkg in ["ultralytics", "streamlit", "matplotlib", "pandas", "requests", "PIL"]:
     try:
         __import__(pkg)

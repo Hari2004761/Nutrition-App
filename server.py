@@ -2,26 +2,24 @@
 
     python server.py            → http://127.0.0.1:5000
 
-Presentation layer only: every bit of detection, classification, nutrition
-lookup and chart drawing is reused from src/ (pipeline.py, detect.py,
-predict.py, nutrition.py, charts.py). The classifier is loaded once at
-start-up and shared by all requests.
+Presentation layer only: detection, classification, nutrition lookup and chart
+drawing all come from src/. The classifier is loaded once at start-up and
+shared by every request.
 """
 import json
 import os
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 
 import torch
 from flask import Flask, jsonify, render_template, request, send_file, Response
 from PIL import Image
 
-# ── Path setup ───────────────────────────────────────────────────────────────
-# All existing modules use paths relative to the project root
-# ("models/classifier_best.pt", "yolov8m-oiv7.pt", "usda_api_key.txt", ...),
-# so anchor the process there regardless of where python was invoked from.
+# Every module uses paths relative to the project root, so anchor the process
+# there regardless of where python was invoked from.
 ROOT = Path(__file__).resolve().parent
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT / "src"))
@@ -31,8 +29,11 @@ from pipeline import run_pipeline, CLASSIFIER_CONF_THRESHOLD    # noqa: E402
 from charts import (                                            # noqa: E402
     annotate_image, make_macro_pie, make_calorie_bar,
     load_history, training_plot, make_per_class_accuracy_bar,
+    make_calorie_protein_scatter, make_macro_composition_bar,
+    make_calorie_density_bar,
     fig_to_png_bytes, pil_to_png_bytes, to_base64,
 )
+import dataset_nutrition                                       # noqa: E402
 from evaluate import compute_confusion, per_class_report      # noqa: E402
 from gemini_chat import (                                     # noqa: E402
     ask_gemini, read_api_key, GeminiError, MODEL_NAME as GEMINI_MODEL,
@@ -51,8 +52,7 @@ MAX_UPLOAD_MB = 32
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
-# The reloader is off (it would load the model twice), so pick up template
-# edits without a restart.
+# The reloader is off (it would load the model twice), so reload templates instead.
 app.config["TEMPLATES_AUTO_RELOAD"] = True
 
 # ── Model, loaded once at start-up ───────────────────────────────────────────
@@ -86,10 +86,9 @@ def _payload():
 
 
 # ── Per-class accuracy, evaluated once and cached ────────────────────────────
-# A full evaluation is every held-out test image (~5,000), which takes tens of
-# seconds on the GPU — far too slow to redo on each page load. The result is
-# written to PER_CLASS_CACHE and only recomputed when the checkpoint is newer
-# than the cache (or ?refresh=1 is passed).
+# A full evaluation is every held-out test image (~5,000) — far too slow to redo
+# per page load, so it is cached and only recomputed when the checkpoint changes
+# (or ?refresh=1 is passed).
 _eval_lock = threading.Lock()
 
 
@@ -113,9 +112,8 @@ def _read_cache():
 def per_class_data(refresh=False):
     """Per-class accuracy report, from cache when possible.
 
-    The numbers come from evaluate.py's own compute_confusion /
-    per_class_report — nothing is recalculated here — and reuse the
-    classifier already loaded at start-up rather than loading a second copy.
+    The numbers come from evaluate.py; nothing is recalculated here, and the
+    classifier already loaded at start-up is reused rather than loaded twice.
     """
     if not refresh:
         cached = _read_cache()
@@ -144,18 +142,14 @@ def per_class_data(refresh=False):
         return data
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Front end
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Front end ────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
     return render_template("index.html", daily_goal=DAILY_GOAL,
                            conf_threshold=CLASSIFIER_CONF_THRESHOLD)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# POST /api/analyze — full pipeline on an uploaded photo
-# ══════════════════════════════════════════════════════════════════════════════
+# ── POST /api/analyze — full pipeline on an uploaded photo ───────────────────
 @app.post("/api/analyze")
 def api_analyze():
     upload = request.files.get("image") or request.files.get("file")
@@ -193,7 +187,6 @@ def api_analyze():
             "message": "No food regions detected. Try a clearer photo or a closer crop.",
         })
 
-    # Per-region labels for the annotated overlay (same rule as the Streamlit app)
     region_labels = []
     for region in regions:
         top_label, top_conf = predict_pil(MODEL, CLASSES, region["crop"], DEVICE, top_k=1)[0]
@@ -239,9 +232,7 @@ def api_analyze():
     })
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Charts — rendered by the same matplotlib code the Streamlit app uses
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Charts — the same matplotlib code the Streamlit app uses ─────────────────
 @app.route("/api/chart/macro-pie", methods=["GET", "POST"])
 def api_macro_pie():
     data = _payload()
@@ -267,9 +258,8 @@ def api_calorie_bar():
     if items is None:
         return jsonify({"error": "Expected a 'recognized' list of items."}), 400
 
-    # Adapt the API shape back to the {name, count, nutrition} entries
-    # make_calorie_bar expects. Its per-item calories are already ×count,
-    # so divide back out — the function re-applies the multiplier itself.
+    # make_calorie_bar expects {name, count, nutrition}; the API's per-item
+    # calories are already ×count, so divide back out before it re-applies it.
     entries = []
     for item in items:
         count = int(item.get("count") or 1) or 1
@@ -285,9 +275,7 @@ def api_calorie_bar():
     return png_response(fig_to_png_bytes(fig))
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Training history
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Training history ─────────────────────────────────────────────────────────
 @app.get("/api/training-runs")
 def api_training_runs():
     if not HISTORY_CSV.exists():
@@ -341,9 +329,72 @@ def api_per_class_accuracy_chart():
     return png_response(fig_to_png_bytes(fig))
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Gemini chat — dietary questions grounded in the meal just analysed
-# ══════════════════════════════════════════════════════════════════════════════
+# ── Dataset analysis — nutrition across the 20 classes, independent of a photo ─
+# Twenty USDA lookups take ~50s and eat into the rate limit, so the result is
+# cached; ?refresh=1 on any of these endpoints re-fetches it.
+_dataset_lock = threading.Lock()
+_dataset_refreshed_at = 0.0
+REFRESH_COALESCE_S = 15     # a page load fires four requests; rebuild once
+
+
+def dataset_data(refresh=False):
+    """Cached nutrition for every class, built by src/dataset_nutrition.py.
+
+    One page view asks for the JSON plus three charts, so without coalescing a
+    single Refresh click would be 80 live USDA calls instead of 20.
+    """
+    global _dataset_refreshed_at
+    with _dataset_lock:                 # one build at a time, not one per request
+        if refresh and time.time() - _dataset_refreshed_at < REFRESH_COALESCE_S:
+            refresh = False             # another request rebuilt it a moment ago
+        if refresh:
+            print("[foodlens] refreshing dataset nutrition from USDA ...", flush=True)
+        data = dataset_nutrition.load(refresh=refresh, verbose=refresh)
+        if refresh:
+            _dataset_refreshed_at = time.time()
+        return data
+
+
+def _dataset_chart(make_fig, **kwargs):
+    """Shared plumbing for the three dataset charts."""
+    try:
+        data = dataset_data(refresh=request.args.get("refresh") == "1")
+    except Exception as exc:
+        return jsonify({"error": f"Nutrition lookup failed: {exc}"}), 500
+    fig = make_fig(data["classes"], **kwargs)
+    if fig is None:
+        return jsonify({"error": "No nutrition data to plot."}), 404
+    return png_response(fig_to_png_bytes(fig))
+
+
+@app.get("/api/dataset-nutrition")
+def api_dataset_nutrition():
+    """The per-class nutrition table as JSON (used for the chart captions)."""
+    try:
+        return jsonify(dataset_data(refresh=request.args.get("refresh") == "1"))
+    except Exception as exc:
+        return jsonify({"error": f"Nutrition lookup failed: {exc}"}), 500
+
+
+@app.get("/api/chart/dataset/calorie-protein")
+def api_dataset_calorie_protein():
+    return _dataset_chart(make_calorie_protein_scatter)
+
+
+@app.get("/api/chart/dataset/macro-composition")
+def api_dataset_macro_composition():
+    sort = request.args.get("sort", "carbs")
+    if sort not in ("protein", "carbs", "fat"):
+        sort = "carbs"
+    return _dataset_chart(make_macro_composition_bar, sort_key=sort)
+
+
+@app.get("/api/chart/dataset/calorie-density")
+def api_dataset_calorie_density():
+    return _dataset_chart(make_calorie_density_bar)
+
+
+# ── Gemini chat — dietary questions grounded in the meal just analysed ───────
 @app.get("/api/chat/status")
 def api_chat_status():
     """Whether a Gemini key is configured, so the UI can say so up front."""
@@ -358,9 +409,8 @@ def api_chat_status():
 def api_chat():
     """One chat turn.
 
-    The client sends the meal context back with every message -- the server
-    keeps no session state, so a restart or a second browser tab never gets a
-    stale or borrowed meal.
+    The client sends the meal context with every message; the server keeps no
+    session state, so a restart or a second tab never gets a borrowed meal.
     """
     data = request.get_json(silent=True) or {}
     message = str(data.get("message") or "").strip()
@@ -385,8 +435,7 @@ def api_chat():
             history=history,
         )
     except GeminiError as exc:
-        # Every upstream failure (missing key, bad key, rate limit, network)
-        # arrives here already phrased for a user.
+        # Upstream failures arrive here already phrased for a user.
         return jsonify({"error": str(exc)}), 502
 
     return jsonify({"reply": reply, "model": GEMINI_MODEL})
