@@ -933,35 +933,40 @@
     $("accChart").src = "data:image/png;base64," + run.acc_chart;
   }
 
-  /* ══════════════════ AUTH (Supabase) ══════════════════
-     Optional: analysis never waits on it. If the CDN script or the config is
-     missing, the controls simply stay hidden. */
-  var sb = null;
+  /* ══════════════════ AUTH ══════════════════
+     Tokens live in HttpOnly cookies that Flask sets; this code never sees them.
+     Optional: analysis never waits on it, and without login configured on the
+     server the controls simply stay hidden. */
   var authMode = "login";
 
-  if (window.SUPABASE_CONFIG && window.supabase && window.supabase.createClient) {
-    sb = window.supabase.createClient(window.SUPABASE_CONFIG.url,
-                                      window.SUPABASE_CONFIG.key);
-  }
-
-  /* fetch() with the user's access token attached; rejects when logged out.
-     getSession() refreshes an expired token before handing it over. */
-  function authFetch(url, opts) {
-    if (!sb) return Promise.reject(new Error("Login is not available."));
-    return sb.auth.getSession().then(function (res) {
-      var session = res.data && res.data.session;
-      if (!session) throw new Error("Please log in first.");
-      var o = {};
-      for (var k in opts || {}) { o[k] = opts[k]; }
-      o.headers = new Headers((opts && opts.headers) || {});
-      o.headers.set("Authorization", "Bearer " + session.access_token);
-      return fetch(url, o);
+  /* fetch() for endpoints that need a user: sends the session cookies, sends a
+     plain-object body as JSON, and drops back to the logged-out header on 401. */
+  function apiFetch(url, opts) {
+    var o = {};
+    for (var k in opts || {}) { o[k] = opts[k]; }
+    o.credentials = "same-origin";
+    o.headers = new Headers((opts && opts.headers) || {});
+    if (o.body && Object.prototype.toString.call(o.body) === "[object Object]") {
+      o.body = JSON.stringify(o.body);
+      o.headers.set("Content-Type", "application/json");
+    }
+    return fetch(url, o).then(function (res) {
+      if (res.status === 401) renderAuth(null);
+      return res;
     });
   }
-  window.FoodLens = { authFetch: authFetch };
+  window.FoodLens = { apiFetch: apiFetch };
 
-  function renderAuth(session) {
-    var user = session && session.user;
+  function authPost(url, body) {
+    return apiFetch(url, { method: "POST", body: body || {} }).then(function (res) {
+      return res.json().then(function (data) {
+        if (!res.ok) throw new Error(data.error || ("Request failed (" + res.status + ")"));
+        return data;
+      });
+    });
+  }
+
+  function renderAuth(user) {
     $("loginBtn").hidden = !!user;
     $("authUser").hidden = !user;
     $("authEmail").textContent = user ? user.email : "";
@@ -988,10 +993,14 @@
     authMsg(null);
   }
 
-  if (sb) {
+  if (window.AUTH_ENABLED) {
     var dialog = $("authDialog");
     $("authBar").hidden = false;
-    sb.auth.onAuthStateChange(function (_event, session) { renderAuth(session); });
+
+    fetch("/auth/session", { credentials: "same-origin" })
+      .then(function (res) { return res.json(); })
+      .then(function (data) { renderAuth(data.user); })
+      .catch(function () { renderAuth(null); });
 
     $("loginBtn").addEventListener("click", function () {
       setAuthMode("login");
@@ -1018,28 +1027,26 @@
       var submit = $("authSubmit");
       submit.disabled = true;
       authMsg(null);
-      var call = authMode === "signup"
-        ? sb.auth.signUp({ email: email, password: password })
-        : sb.auth.signInWithPassword({ email: email, password: password });
-
-      call.then(function (res) {
-        if (res.error) { authMsg("error", res.error.message); return; }
-        if (!res.data.session) {
-          // email confirmation is on: no session until the link is clicked
-          setAuthMode("login");
-          authMsg("info", "Check your inbox for a confirmation link, then log in.");
-          return;
-        }
-        dialog.close();
-      }).catch(function (err) {
-        authMsg("error", err.message || "Could not reach the login server.");
-      }).finally(function () {
-        submit.disabled = false;
-      });
+      authPost("/auth/" + authMode, { email: email, password: password })
+        .then(function (data) {
+          if (data.confirmation_required) {
+            setAuthMode("login");
+            authMsg("info", "Check your inbox for a confirmation link, then log in.");
+            return;
+          }
+          renderAuth(data.user);
+          dialog.close();
+        })
+        .catch(function (err) {
+          authMsg("error", err.message || "Could not reach the login server.");
+        })
+        .finally(function () { submit.disabled = false; });
     });
 
     $("logoutBtn").addEventListener("click", function () {
-      sb.auth.signOut().then(function () { renderAuth(null); });
+      authPost("/auth/logout")
+        .catch(function () { /* cookies are cleared server-side regardless */ })
+        .then(function () { renderAuth(null); });
     });
   }
 

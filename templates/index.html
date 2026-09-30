@@ -89,7 +89,7 @@
     <div class="page-header">
       <p class="page-title" id="pageTitle">Culinary Intelligence</p>
 
-      <!-- shown by app.js only once supabase-js has loaded and is configured -->
+      <!-- shown by app.js only when the server has login configured -->
       <div class="auth-bar" id="authBar" hidden>
         <button class="btn-ghost" id="loginBtn" type="button">Log in</button>
         <div class="auth-user" id="authUser" hidden>
@@ -388,12 +388,7 @@
 </div>
 
 <script>window.DAILY_GOAL = {{ daily_goal }};</script>
-<script>window.SUPABASE_CONFIG = {{ supabase_config | tojson }};</script>
-{% if supabase_config %}
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"
-        integrity="sha256-WdOUh8NYmEO0EDItij1WLOAiq6HlzLFomO8/sqDaLs0="
-        crossorigin="anonymous"></script>
-{% endif %}
+<script>window.AUTH_ENABLED = {{ auth_enabled | tojson }};</script>
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

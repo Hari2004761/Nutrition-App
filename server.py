@@ -27,9 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 # Before importing auth, which reads the Supabase settings at import.
 load_dotenv(ROOT / "src" / ".env")
 
-from auth import (                                              # noqa: E402
-    require_user, auth_configured, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY,
-)
+from auth import auth_bp, auth_configured, check_origin, require_user  # noqa: E402
 
 from detect import _get_yolo                                     # noqa: E402
 from predict import load_model, predict_pil                     # noqa: E402
@@ -63,6 +61,9 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 # The reloader is off (it would load the model twice), so reload templates instead.
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+# CSRF: every POST/PUT/PATCH/DELETE must come from this app's own origin.
+app.before_request(check_origin)
+app.register_blueprint(auth_bp)
 
 # ── Model, loaded once at start-up ───────────────────────────────────────────
 MODEL = CLASSES = DEVICE = None
@@ -156,15 +157,12 @@ def per_class_data(refresh=False):
 # ── Front end ────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
-    # The publishable key is meant for browsers; the secret key never leaves Supabase.
-    supabase_config = ({"url": SUPABASE_URL, "key": SUPABASE_PUBLISHABLE_KEY}
-                       if auth_configured() else None)
     return render_template("index.html", daily_goal=DAILY_GOAL,
                            conf_threshold=CLASSIFIER_CONF_THRESHOLD,
-                           supabase_config=supabase_config)
+                           auth_enabled=auth_configured())
 
 
-# ── GET /api/me — the verified user behind the bearer token ─────────────────
+# ── GET /api/me — the verified user behind the session cookies ─────────────
 @app.get("/api/me")
 @require_user
 def api_me():
