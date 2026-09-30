@@ -88,7 +88,57 @@
 
     <div class="page-header">
       <p class="page-title" id="pageTitle">Culinary Intelligence</p>
+
+      <!-- shown by app.js only once supabase-js has loaded and is configured -->
+      <div class="auth-bar" id="authBar" hidden>
+        <button class="btn-ghost" id="loginBtn" type="button">Log in</button>
+        <div class="auth-user" id="authUser" hidden>
+          <span class="auth-email" id="authEmail"></span>
+          <button class="btn-ghost" id="logoutBtn" type="button">Log out</button>
+        </div>
+      </div>
     </div>
+
+    <!-- ─────────── LOG IN / SIGN UP ─────────── -->
+    <dialog class="auth-dialog" id="authDialog" aria-labelledby="authTitle">
+      <form class="auth-form" id="authForm" novalidate>
+        <div class="auth-head">
+          <p class="auth-title" id="authTitle">Log in to FoodLens</p>
+          <button class="auth-close" id="authClose" type="button" aria-label="Close">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+                 stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div class="auth-tabs" role="tablist">
+          <button class="auth-tab active" type="button" data-mode="login"
+                  role="tab" aria-selected="true">Log in</button>
+          <button class="auth-tab" type="button" data-mode="signup"
+                  role="tab" aria-selected="false">Sign up</button>
+        </div>
+
+        <label class="field-label" for="authEmailInput">Email</label>
+        <input class="chat-input auth-input" id="authEmailInput" type="email"
+               autocomplete="email" required>
+
+        <label class="field-label" for="authPasswordInput">Password</label>
+        <input class="chat-input auth-input" id="authPasswordInput" type="password"
+               autocomplete="current-password" minlength="6" required>
+
+        <div class="alert alert-error auth-msg" id="authError" hidden></div>
+        <div class="alert alert-ok auth-msg" id="authInfo" hidden></div>
+
+        <button class="btn-primary" id="authSubmit" type="submit">Log in</button>
+        <p class="auth-note">
+          Photo analysis works without an account. Logging in is only needed
+          for saved meals and history.
+        </p>
+      </form>
+    </dialog>
 
     <!-- ─────────── FOOD ANALYSIS ─────────── -->
     <section class="view" id="view-analysis">
@@ -204,9 +254,11 @@
             </div>
 
             <div class="chat-chips" id="chatChips">
-              <button class="chat-chip" type="button">Is this meal diabetes-friendly?</button>
               <button class="chat-chip" type="button">How can I make this lower calorie?</button>
               <button class="chat-chip" type="button">What would you swap out here?</button>
+              <button class="chat-chip" type="button">What could I add for more protein?</button>
+              <button class="chat-chip" type="button">How does this fit into a 2000 kcal day?</button>
+              <button class="chat-chip" type="button">How can I make this meal more healthy?</button>
             </div>
 
             <div class="chat-log" id="chatLog"></div>
@@ -336,6 +388,12 @@
 </div>
 
 <script>window.DAILY_GOAL = {{ daily_goal }};</script>
+<script>window.SUPABASE_CONFIG = {{ supabase_config | tojson }};</script>
+{% if supabase_config %}
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js"
+        integrity="sha256-WdOUh8NYmEO0EDItij1WLOAiq6HlzLFomO8/sqDaLs0="
+        crossorigin="anonymous"></script>
+{% endif %}
 <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>

@@ -95,12 +95,12 @@ def make_calorie_bar(merged):
     names, kcals, colors = [], [], []
     for i, entry in enumerate(merged):
         n = entry["nutrition"]
-        count = entry["count"]
+        qty = entry.get("quantity", 1)
         name = entry["name"].replace("_", " ").title()
-        if count > 1:
-            name += f" ×{count}"
+        if qty > 1:
+            name += f" ×{qty}"
         names.append(name)
-        kcals.append((n["calories"] or 0) * count)
+        kcals.append(n["calories"] or 0)
         colors.append(BOX_COLORS[i % len(BOX_COLORS)])
 
     fig, ax = _base_fig(5.2, max(2.4, len(names) * 0.78 + 1.0))

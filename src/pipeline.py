@@ -6,7 +6,7 @@ Runs YOLOv8 detection to locate food regions, classifies each crop with the
 trained MobileNetV3-Large classifier, then fetches nutrition via USDA API.
 Regions below 40% classifier confidence are reported as unrecognized.
 Duplicate predicted labels (e.g. two samosa regions) are merged into one
-line item with ×N multiplier applied to the nutrition totals.
+line item; the region count is reported but never multiplies the nutrition.
 """
 import argparse
 import sys
@@ -18,13 +18,22 @@ import torch
 sys.path.insert(0, str(Path(__file__).parent))
 
 from detect import detect_food            # noqa: E402
-from nutrition import lookup_nutrition    # noqa: E402
+from nutrition import COUNTABLE_ITEM_G, lookup_nutrition  # noqa: E402
 from predict import load_model, predict_pil  # noqa: E402
 
 MODELS = Path("models")
 # The classifier always returns a guess, so anything under this is reported as
 # unrecognized instead: better to miss an item than to name one confidently wrong.
 CLASSIFIER_CONF_THRESHOLD = 0.40
+
+
+def _scale_to_piece(n, piece_g):
+    """Rescale a per-serving nutrition dict to one piece of piece_g grams."""
+    if n["calories"] is None or not n["serving_g"]:
+        return {**n, "serving_g": piece_g}
+    k = piece_g / n["serving_g"]
+    return {**n, "serving_g": piece_g,
+            **{m: round(n[m] * k, 1) for m in ("calories", "protein", "carbs", "fat")}}
 
 
 def run_pipeline(image_path, model, classes, device, det_conf=0.1, top_k=3):
@@ -55,22 +64,28 @@ def run_pipeline(image_path, model, classes, device, det_conf=0.1, top_k=3):
                 "alts": preds[1:],
             })
 
-    # Merged on the classifier's label, not box overlap: two regions that both
-    # come back samosa are one line item ×2, whatever their boxes look like.
+    # Merged on the classifier's label, not box overlap. The region count is
+    # kept as information only: YOLO both splits one item into several boxes and
+    # merges touching items into one, so it is no measure of how many were eaten.
     seen = {}
     merged = []
     for r in recognized:
         name = r["name"]
         if name in seen:
-            merged[seen[name]]["count"] += 1
+            merged[seen[name]]["regions"] += 1
             merged[seen[name]]["conf"] = max(merged[seen[name]]["conf"], r["conf"])
         else:
             seen[name] = len(merged)
             merged.append({"name": name, "conf": r["conf"],
-                           "count": 1, "alts": r["alts"]})
+                           "regions": 1, "alts": r["alts"]})
 
+    # Countable classes start at one piece; the quantity is the user's to set.
     for entry in merged:
-        entry["nutrition"] = lookup_nutrition(entry["name"])
+        n = lookup_nutrition(entry["name"])
+        entry["countable"] = entry["name"] in COUNTABLE_ITEM_G
+        if entry["countable"]:
+            n = _scale_to_piece(n, COUNTABLE_ITEM_G[entry["name"]])
+        entry["nutrition"] = n
 
     return {"regions": regions, "merged": merged, "unrecognized": unrecognized}
 
@@ -123,24 +138,23 @@ def main():
     total_kcal = total_pro = total_carb = total_fat = 0.0
     for idx, entry in enumerate(merged, 1):
         n     = entry["nutrition"]
-        count = entry["count"]
-        label = entry["name"] + (f" ×{count}" if count > 1 else "")
-        kcal  = (n["calories"] or 0) * count
-        pro   = (n["protein"]  or 0) * count
-        carb  = (n["carbs"]    or 0) * count
-        fat   = (n["fat"]      or 0) * count
+        kcal  = n["calories"] or 0
+        pro   = n["protein"]  or 0
+        carb  = n["carbs"]    or 0
+        fat   = n["fat"]      or 0
         total_kcal += kcal; total_pro += pro
         total_carb += carb; total_fat += fat
 
         src_tag = "" if n["source"] == "api" else f" [{n['source']}]"
-        print(f"\n  {idx}. {label}")
+        print(f"\n  {idx}. {entry['name']}  "
+              f"(detected in {entry['regions']} region{'s' if entry['regions'] > 1 else ''})")
         print(f"     Classifier: {entry['conf']*100:.1f}% confident", end="")
         if entry["alts"]:
             alt_str = ", ".join(f"{lbl} {p*100:.0f}%" for lbl, p in entry["alts"])
             print(f"  (runners-up: {alt_str})", end="")
         print()
-        serving_str = (f"{n['serving_g']}g  ×{count} = {n['serving_g']*count}g"
-                       if count > 1 else f"{n['serving_g']}g")
+        serving_str = (f"{n['serving_g']}g (1 piece)" if entry["countable"]
+                       else f"{n['serving_g']}g")
         print(f"     Serving:    {serving_str}")
         if n["calories"] is not None:
             print(f"     Nutrition:  {kcal:.1f} kcal | "
@@ -158,7 +172,7 @@ def main():
             print(f"    Region {u['region_idx']}:  "
                   f"{u['conf']*100:.1f}% (top guess: \"{u['top_guess']}\")")
 
-    total_items = sum(e["count"] for e in merged)
+    total_items = len(merged)
     print(f"\n{'─'*W}")
     print(f"  TOTAL ({total_items} item(s)):  "
           f"{total_kcal:.1f} kcal | {total_pro:.1f}g protein | "

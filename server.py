@@ -15,7 +15,8 @@ import time
 from pathlib import Path
 
 import torch
-from flask import Flask, jsonify, render_template, request, send_file, Response
+from dotenv import load_dotenv
+from flask import Flask, g, jsonify, render_template, request, send_file, Response
 from PIL import Image
 
 # Every module uses paths relative to the project root, so anchor the process
@@ -23,6 +24,12 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent
 os.chdir(ROOT)
 sys.path.insert(0, str(ROOT / "src"))
+# Before importing auth, which reads the Supabase settings at import.
+load_dotenv(ROOT / "src" / ".env")
+
+from auth import (                                              # noqa: E402
+    require_user, auth_configured, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY,
+)
 
 from detect import _get_yolo                                     # noqa: E402
 from predict import load_model, predict_pil                     # noqa: E402
@@ -149,8 +156,19 @@ def per_class_data(refresh=False):
 # ── Front end ────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
+    # The publishable key is meant for browsers; the secret key never leaves Supabase.
+    supabase_config = ({"url": SUPABASE_URL, "key": SUPABASE_PUBLISHABLE_KEY}
+                       if auth_configured() else None)
     return render_template("index.html", daily_goal=DAILY_GOAL,
-                           conf_threshold=CLASSIFIER_CONF_THRESHOLD)
+                           conf_threshold=CLASSIFIER_CONF_THRESHOLD,
+                           supabase_config=supabase_config)
+
+
+# ── GET /api/me — the verified user behind the bearer token ─────────────────
+@app.get("/api/me")
+@require_user
+def api_me():
+    return jsonify({"id": g.user["sub"], "email": g.user.get("email")})
 
 
 # ── POST /api/analyze — full pipeline on an uploaded photo ───────────────────
@@ -201,19 +219,21 @@ def api_analyze():
 
     recognized = []
     for entry in merged:
-        n, count = entry["nutrition"], entry["count"]
+        n = entry["nutrition"]
         recognized.append({
             "name":       entry["name"],
             "confidence": entry["conf"],
-            "count":      count,
-            "calories":   (n["calories"] or 0) * count,
-            "protein":    (n["protein"]  or 0) * count,
-            "carbs":      (n["carbs"]    or 0) * count,
-            "fat":        (n["fat"]      or 0) * count,
+            # information only; quantity is set by the user in the browser
+            "regions":    entry["regions"],
+            "countable":  entry["countable"],
+            "calories":   n["calories"] or 0,
+            "protein":    n["protein"]  or 0,
+            "carbs":      n["carbs"]    or 0,
+            "fat":        n["fat"]      or 0,
             "source":     n["source"],
             "matched":    n["matched"] or "",
+            # grams for one piece when countable, else for the whole portion
             "serving_g":  n.get("serving_g"),
-            # energy density — independent of count, so it is not multiplied
             "calories_per_100g": n.get("calories_per_100g"),
             "has_data":   n["calories"] is not None,
         })
@@ -262,15 +282,13 @@ def api_calorie_bar():
     if items is None:
         return jsonify({"error": "Expected a 'recognized' list of items."}), 400
 
-    # make_calorie_bar expects {name, count, nutrition}; the API's per-item
-    # calories are already ×count, so divide back out before it re-applies it.
+    # Per-item calories arrive already × quantity; quantity is only for the label.
     entries = []
     for item in items:
-        count = int(item.get("count") or 1) or 1
         entries.append({
-            "name":  item.get("name", "item"),
-            "count": count,
-            "nutrition": {"calories": float(item.get("calories") or 0) / count},
+            "name":     item.get("name", "item"),
+            "quantity": int(item.get("quantity") or 1) or 1,
+            "nutrition": {"calories": float(item.get("calories") or 0)},
         })
 
     fig = make_calorie_bar(entries)

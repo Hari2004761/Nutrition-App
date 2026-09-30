@@ -309,10 +309,26 @@ def main():
     ap.add_argument("--deterministic", action="store_true",
                     help="Deterministic cuDNN kernels: repeatable, but gives up the "
                          "autotuner and roughly 10-20%% of training throughput")
+    ap.add_argument("--run-dir", default=None,
+                    help="Write the checkpoint and history to models/<NAME>/ and "
+                         "outputs/<NAME>/ instead of the default paths, so an "
+                         "experiment cannot overwrite the current result. The split "
+                         "in outputs/ is still shared and read-only.")
+    ap.add_argument("--early-stop", action="store_true",
+                    help="Stop once validation accuracy has not improved for "
+                         "--patience epochs. Off by default.")
+    ap.add_argument("--patience", type=int, default=4,
+                    help="Epochs without a new best validation accuracy before "
+                         "--early-stop fires (default 4)")
     args = ap.parse_args()
 
     OUT.mkdir(exist_ok=True)
     MODELS.mkdir(exist_ok=True)
+    run_out, run_models = OUT, MODELS
+    if args.run_dir:
+        run_out, run_models = OUT / args.run_dir, MODELS / args.run_dir
+        run_out.mkdir(parents=True, exist_ok=True)
+        run_models.mkdir(parents=True, exist_ok=True)
     set_seed(args.seed, args.deterministic)
     meta = json.loads((OUT / "subset_meta.json").read_text())
     classes = meta["classes"]
@@ -348,8 +364,10 @@ def main():
     scaler = GradScaler("cuda") if _NEW_AMP else GradScaler()
     # Smoke runs go to their own file so a sanity check never lands in the
     # history that draws the thesis graphs.
-    history = OUT / ("history_smoke.csv" if args.smoke else "history.csv")
+    history = run_out / ("history_smoke.csv" if args.smoke else "history.csv")
     best = 0.0
+    best_at = "none"   # phase/epoch the saved checkpoint came from
+    stalled = 0        # epochs since the last new best, for --early-stop
 
     if args.smoke:
         phases = [("smoke", 1, 1e-3, False)]
@@ -390,21 +408,34 @@ def main():
             # Selected on held-out validation data; the test split plays no part.
             if va_acc > best and not args.smoke:
                 best = va_acc
+                best_at = f"{phase} ep{ep}"
+                stalled = 0
                 torch.save({
                     "state_dict": model.state_dict(),
                     "classes":    classes,
                     "val_acc":    round(va_acc, 4),
                     "seed":       args.seed,
+                    "best_epoch": best_at,
                     "split": {
                         "split_seed":      split["split_seed"],
                         "val_per_class":   split["val_per_class"],
                         "train_per_class": len(train_idx) // len(classes),
                         "val_fingerprint": split["val_fingerprint"],
                     },
-                }, MODELS / "classifier_best.pt")
+                }, run_models / "classifier_best.pt")
                 print(f"       saved new best ({best:.3f})")
+            else:
+                stalled += 1
+                if args.early_stop and stalled >= args.patience:
+                    print(f"       early stop: {stalled} epoch(s) without a new "
+                          f"best (patience {args.patience})")
+                    break
+        else:
+            continue       # phase finished without early stopping
+        break
 
-    print(f"\nDone. Best val acc: {best:.3f}  (held-out validation, {len(val_idx)} images)")
+    print(f"\nDone. Best val acc: {best:.3f} at {best_at}  "
+          f"(held-out validation, {len(val_idx)} images)")
     print(f"Per-epoch log: {history}  <- your thesis loss/accuracy graphs")
     print("Run src/evaluate.py for the test-split score — that data was not used here.")
 

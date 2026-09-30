@@ -13,6 +13,7 @@ Get a free key at: https://fdc.nal.usda.gov/api-key-signup.html
 import json
 import re
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -44,6 +45,23 @@ SERVING_SIZES = {
     "falafel":              90,  # 3 falafel balls
     "macaroni_and_cheese": 200,  # 1 cup
     "cheesecake":          125,  # 1 slice
+}
+
+# Classes eaten in countable pieces: grams for ONE piece, which the UI multiplies
+# by a user-set quantity instead of trusting the detector's region count. Values
+# are the household portion on the USDA record lookup_nutrition() matches; where
+# USDA lists several sizes, the one that matches what Food-101's photos show.
+COUNTABLE_ITEM_G = {
+    "chicken_wings": 55,   # USDA "1 wing, any size"
+    "samosa":       100,   # USDA "1 regular/large"
+    "donuts":        75,   # USDA "1 doughnut"
+    "tacos":        105,   # USDA "1 small/regular"
+    "pancakes":      50,   # USDA "1 medium pancake"
+    "waffles":      135,   # USDA "1 thick / Belgian waffle"
+    "onion_rings":   10,   # USDA "1 ring"
+    "sushi":         30,   # USDA "1 piece"
+    "pizza":        119,   # USDA "1 piece, NFS"
+    "falafel":       17,   # USDA "1 patty"
 }
 
 # Approximate per-serving values, used when the API is unreachable, the key is
@@ -143,9 +161,13 @@ _NON_DISH_WORDS = {
     "concentrate", "instant", "dry", "dried", "frozen",
 }
 
-# FNDDS restaurant-chain records read "BRAND NAME, item" ("TACO BELL, Original
-# Taco"); _score_match penalises them so generic entries win.
-_CHAIN_RE = re.compile(r"^[A-Z]{2,}[\w' ]*,")
+# Restaurant-chain records lead with the brand in capitals ("TACO BELL, Original
+# Taco", "PIZZA HUT 12\" Cheese Pizza", "McDONALD'S, Hamburger") or bracket it
+# ("Hamburger (McDonalds)"); _score_match penalises them so generic entries win.
+_CHAIN_RE = re.compile(
+    r"^(?:Mc)?[A-Z][A-Z'&.-]+\b"
+    r"|\((?:[A-Z][\w'&.-]*\s*)+\)"
+)
 
 
 def _score_match(description: str, query: str) -> int:
@@ -161,7 +183,7 @@ def _score_match(description: str, query: str) -> int:
         return 0
 
     # Chain records are a last resort, not disqualified: penalised, floored at 1.
-    is_chain = bool(_CHAIN_RE.match(description))
+    is_chain = bool(_CHAIN_RE.search(description))
 
     q_base = q.rstrip("s")      # rough singular: "pancakes" -> "pancake"
     d_base = d.rstrip("s")
@@ -181,35 +203,41 @@ def _score_match(description: str, query: str) -> int:
     return max(1, score - 2) if is_chain else score
 
 
-def _usda_query(query: str, api_key: str) -> list[dict]:
-    """Call USDA search API; return list of food items or raise on error.
+_DATA_TYPES = ["SR Legacy", "Survey (FNDDS)"]
 
-    Tries the SR Legacy + Survey (FNDDS) filter first for clean generic matches.
-    Some queries 400 when that filter is set — a server-side quirk — so the call
-    is retried unfiltered, leaving _score_match to prefer generic over branded.
-    """
-    filtered = urllib.parse.urlencode([
-        ("query",    query),
-        ("api_key",  api_key),
-        ("pageSize", 10),
-        ("dataType", "SR Legacy"),
-        ("dataType", "Survey (FNDDS)"),
-    ])
-    unfiltered = urllib.parse.urlencode([
-        ("query",    query),
-        ("api_key",  api_key),
-        ("pageSize", 10),
-    ])
-    for params in (filtered, unfiltered):
+
+def _usda_post(body: dict, api_key: str) -> list[dict]:
+    """POST one search; a 5xx is retried once, anything else raises."""
+    url = f"{_API_URL}?{urllib.parse.urlencode({'api_key': api_key})}"
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                 headers={"Content-Type": "application/json"})
+    for attempt in range(2):
         try:
-            url = f"{_API_URL}?{params}"
-            with urllib.request.urlopen(url, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=8) as resp:
                 return json.loads(resp.read()).get("foods", [])
         except urllib.error.HTTPError as exc:
-            if exc.code == 400 and params is filtered:
-                continue   # retry without dataType filter
-            raise
+            if exc.code < 500 or attempt:
+                raise
+            time.sleep(1)
     return []
+
+
+def _usda_query(query: str, api_key: str) -> list[dict]:
+    """Search SR Legacy + Survey (FNDDS) only; return the food items.
+
+    Sent as a POST with dataType as a JSON list: the GET form with a repeated
+    dataType parameter 400s intermittently, and its unfiltered retry let
+    Branded records win on some runs but not others. If the filtered call
+    still 400s, the unfiltered retry keeps only those two data types.
+    """
+    try:
+        return _usda_post({"query": query, "pageSize": 10,
+                           "dataType": _DATA_TYPES}, api_key)
+    except urllib.error.HTTPError as exc:
+        if exc.code != 400:
+            raise
+    foods = _usda_post({"query": query, "pageSize": 50}, api_key)
+    return [f for f in foods if f.get("dataType") in _DATA_TYPES]
 
 
 def lookup_nutrition(food_name: str) -> dict:
@@ -228,14 +256,17 @@ def lookup_nutrition(food_name: str) -> dict:
             api_query = food_name.replace("_", " ")
             # Override query for foods where the plain name returns poor matches
             _QUERY_OVERRIDES = {
-                "pizza":        "pizza cheese",
+                "pizza":        "Pizza, cheese, from restaurant or fast food, NS as to type of crust",
+                "hamburger":    "Hamburger, NFS",
+                "ice_cream":    "Ice cream, vanilla",
+                "chicken_wings": "Chicken wing, fried, coated, from restaurant",
                 "donuts":       "doughnut, NFS",
                 "french_fries": "potato, french fries, NFS",
                 "pancakes":     "pancakes, plain",
                 "waffles":      "waffle, NFS",
                 "cheesecake":   "cheesecake, plain",
                 "tacos":        "taco, beef, NFS",
-                "onion_rings":  "onion rings, NFS",
+                "onion_rings":  "Fried onion rings",
                 "paella":       "paella seafood rice",
                 "omelette":     "egg omelet plain",
             }

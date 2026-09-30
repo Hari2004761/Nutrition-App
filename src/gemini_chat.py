@@ -74,14 +74,15 @@ def format_meal_context(recognized, totals, unrecognized=None):
     lines = []
     for item in recognized:
         name = str(item.get("name", "item")).replace("_", " ")
-        count = int(item.get("count") or 1)
-        if count > 1:
-            name += f" x{count}"
+        qty = int(item.get("quantity") or 1)
+        if qty > 1:
+            name += f" x{qty}"
         if item.get("calories") is None:
             lines.append(f"- {name}: no nutrition data available")
             continue
         serving = item.get("serving_g")
-        portion = f", portion {serving}g each" if serving else ""
+        each = " each" if item.get("countable") else ""
+        portion = f", portion {serving}g{each}" if serving else ""
         density = item.get("calories_per_100g")
         density_txt = f", {density:.0f} kcal per 100g" if density else ""
         lines.append(
@@ -198,7 +199,7 @@ def main():
 
     # A stand-in meal so the CLI can be exercised without running the pipeline.
     demo_recognized = [{
-        "name": "macaroni_and_cheese", "count": 1, "calories": 446.0,
+        "name": "macaroni_and_cheese", "calories": 446.0,
         "protein": 17.4, "carbs": 46.2, "fat": 21.0,
         "serving_g": 200, "calories_per_100g": 223.0,
     }]

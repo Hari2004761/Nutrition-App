@@ -74,12 +74,7 @@ def containment(inner, outer):
     return inter / area_inner if area_inner else 0.0
 
 
-# How much two boxes may overlap before the weaker one is treated as a duplicate
-# of the same region; raising it suppresses less, keeping adjacent items apart.
-CROSS_CLASS_NMS_IOU = 0.55
-
-
-def cross_class_nms(dets, iou_thresh=CROSS_CLASS_NMS_IOU):
+def cross_class_nms(dets, iou_thresh=0.55):
     """YOLO often fires 'Food' + 'Salad' + 'Bowl' on the same region.
     Keep only the highest-confidence box per region."""
     kept = []
@@ -207,7 +202,7 @@ def detect_food(image_path, conf_threshold=0.1, weights="yolov8m-oiv7.pt",
 
     if debug:
         print(f"\n{'='*60}")
-        print(f"STAGE 2 — after cross-class NMS (iou_thresh={CROSS_CLASS_NMS_IOU}): "
+        print(f"STAGE 2 — after cross-class NMS (iou_thresh=0.55): "
               f"{len(after_nms)} kept, {len(nms_removed)} removed")
         print(f"{'='*60}")
         if nms_removed:

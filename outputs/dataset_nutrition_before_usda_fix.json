@@ -1,0 +1,408 @@
+{
+  "generated": "2026-09-17T22:18:46+00:00",
+  "n_classes": 20,
+  "from_api": 19,
+  "from_fallback": 1,
+  "classes": [
+    {
+      "name": "caesar_salad",
+      "label": "caesar salad",
+      "serving_g": 150,
+      "matched": "fallback (caesar_salad)",
+      "source": "fallback",
+      "calories": 190,
+      "protein": 7.0,
+      "carbs": 8.0,
+      "fat": 15.0,
+      "calories_per_100g": 126.7,
+      "protein_per_100g": 4.7,
+      "carbs_per_100g": 5.3,
+      "fat_per_100g": 10.0,
+      "macro_pct": {
+        "protein": 14.4,
+        "carbs": 16.4,
+        "fat": 69.2
+      }
+    },
+    {
+      "name": "cheesecake",
+      "label": "cheesecake",
+      "serving_g": 125,
+      "matched": "Cheesecake, plain",
+      "source": "api",
+      "calories": 498.8,
+      "protein": 6.6,
+      "carbs": 43.5,
+      "fat": 33.1,
+      "calories_per_100g": 399.0,
+      "protein_per_100g": 5.3,
+      "carbs_per_100g": 34.8,
+      "fat_per_100g": 26.5,
+      "macro_pct": {
+        "protein": 5.3,
+        "carbs": 34.9,
+        "fat": 59.8
+      }
+    },
+    {
+      "name": "chicken_curry",
+      "label": "chicken curry",
+      "serving_g": 250,
+      "matched": "Chicken curry",
+      "source": "api",
+      "calories": 267.5,
+      "protein": 16.2,
+      "carbs": 16.4,
+      "fat": 16.2,
+      "calories_per_100g": 107.0,
+      "protein_per_100g": 6.5,
+      "carbs_per_100g": 6.6,
+      "fat_per_100g": 6.5,
+      "macro_pct": {
+        "protein": 23.5,
+        "carbs": 23.8,
+        "fat": 52.8
+      }
+    },
+    {
+      "name": "chicken_wings",
+      "label": "chicken wings",
+      "serving_g": 180,
+      "matched": "Chicken wing, stewed",
+      "source": "api",
+      "calories": 444.6,
+      "protein": 40.7,
+      "carbs": 0.0,
+      "fat": 30.0,
+      "calories_per_100g": 247.0,
+      "protein_per_100g": 22.6,
+      "carbs_per_100g": 0.0,
+      "fat_per_100g": 16.7,
+      "macro_pct": {
+        "protein": 37.6,
+        "carbs": 0.0,
+        "fat": 62.4
+      }
+    },
+    {
+      "name": "donuts",
+      "label": "donuts",
+      "serving_g": 60,
+      "matched": "Doughnut, NFS",
+      "source": "api",
+      "calories": 255.6,
+      "protein": 3.3,
+      "carbs": 29.7,
+      "fat": 13.7,
+      "calories_per_100g": 426.0,
+      "protein_per_100g": 5.5,
+      "carbs_per_100g": 49.5,
+      "fat_per_100g": 22.8,
+      "macro_pct": {
+        "protein": 5.2,
+        "carbs": 46.5,
+        "fat": 48.3
+      }
+    },
+    {
+      "name": "falafel",
+      "label": "falafel",
+      "serving_g": 90,
+      "matched": "Falafel",
+      "source": "api",
+      "calories": 462.6,
+      "protein": 7.5,
+      "carbs": 26.1,
+      "fat": 37.1,
+      "calories_per_100g": 514.0,
+      "protein_per_100g": 8.3,
+      "carbs_per_100g": 29.0,
+      "fat_per_100g": 41.2,
+      "macro_pct": {
+        "protein": 6.4,
+        "carbs": 22.3,
+        "fat": 71.3
+      }
+    },
+    {
+      "name": "french_fries",
+      "label": "french fries",
+      "serving_g": 117,
+      "matched": "Potato, french fries, NFS",
+      "source": "api",
+      "calories": 263.2,
+      "protein": 2.9,
+      "carbs": 27.2,
+      "fat": 16.5,
+      "calories_per_100g": 225.0,
+      "protein_per_100g": 2.5,
+      "carbs_per_100g": 23.2,
+      "fat_per_100g": 14.1,
+      "macro_pct": {
+        "protein": 4.3,
+        "carbs": 40.5,
+        "fat": 55.2
+      }
+    },
+    {
+      "name": "fried_rice",
+      "label": "fried rice",
+      "serving_g": 205,
+      "matched": "FRIED RICE",
+      "source": "api",
+      "calories": 375.1,
+      "protein": 6.8,
+      "carbs": 65.0,
+      "fat": 10.2,
+      "calories_per_100g": 183.0,
+      "protein_per_100g": 3.3,
+      "carbs_per_100g": 31.7,
+      "fat_per_100g": 5.0,
+      "macro_pct": {
+        "protein": 7.2,
+        "carbs": 68.6,
+        "fat": 24.2
+      }
+    },
+    {
+      "name": "hamburger",
+      "label": "hamburger",
+      "serving_g": 150,
+      "matched": "HAMBURGER",
+      "source": "api",
+      "calories": 318.0,
+      "protein": 5.3,
+      "carbs": 61.8,
+      "fat": 5.3,
+      "calories_per_100g": 212.0,
+      "protein_per_100g": 3.5,
+      "carbs_per_100g": 41.2,
+      "fat_per_100g": 3.5,
+      "macro_pct": {
+        "protein": 6.7,
+        "carbs": 78.2,
+        "fat": 15.1
+      }
+    },
+    {
+      "name": "ice_cream",
+      "label": "ice cream",
+      "serving_g": 66,
+      "matched": "ICE CREAM",
+      "source": "api",
+      "calories": 132.0,
+      "protein": 2.0,
+      "carbs": 16.2,
+      "fat": 7.1,
+      "calories_per_100g": 200.0,
+      "protein_per_100g": 3.0,
+      "carbs_per_100g": 24.5,
+      "fat_per_100g": 10.8,
+      "macro_pct": {
+        "protein": 5.9,
+        "carbs": 47.4,
+        "fat": 46.7
+      }
+    },
+    {
+      "name": "macaroni_and_cheese",
+      "label": "macaroni and cheese",
+      "serving_g": 200,
+      "matched": "MACARONI AND CHEESE",
+      "source": "api",
+      "calories": 220.0,
+      "protein": 7.1,
+      "carbs": 36.0,
+      "fat": 4.7,
+      "calories_per_100g": 110.0,
+      "protein_per_100g": 3.5,
+      "carbs_per_100g": 18.0,
+      "fat_per_100g": 2.4,
+      "macro_pct": {
+        "protein": 13.2,
+        "carbs": 67.1,
+        "fat": 19.7
+      }
+    },
+    {
+      "name": "omelette",
+      "label": "omelette",
+      "serving_g": 120,
+      "matched": "Egg omelet or scrambled egg, made with butter",
+      "source": "api",
+      "calories": 218.4,
+      "protein": 13.9,
+      "carbs": 1.1,
+      "fat": 17.6,
+      "calories_per_100g": 182.0,
+      "protein_per_100g": 11.6,
+      "carbs_per_100g": 0.9,
+      "fat_per_100g": 14.7,
+      "macro_pct": {
+        "protein": 25.5,
+        "carbs": 2.0,
+        "fat": 72.5
+      }
+    },
+    {
+      "name": "onion_rings",
+      "label": "onion rings",
+      "serving_g": 90,
+      "matched": "DENNY'S, onion rings",
+      "source": "api",
+      "calories": 346.5,
+      "protein": 4.8,
+      "carbs": 36.9,
+      "fat": 20.0,
+      "calories_per_100g": 385.0,
+      "protein_per_100g": 5.3,
+      "carbs_per_100g": 41.0,
+      "fat_per_100g": 22.2,
+      "macro_pct": {
+        "protein": 5.5,
+        "carbs": 42.6,
+        "fat": 51.9
+      }
+    },
+    {
+      "name": "paella",
+      "label": "paella",
+      "serving_g": 250,
+      "matched": "Paella with seafood",
+      "source": "api",
+      "calories": 357.5,
+      "protein": 20.1,
+      "carbs": 41.1,
+      "fat": 11.9,
+      "calories_per_100g": 143.0,
+      "protein_per_100g": 8.0,
+      "carbs_per_100g": 16.4,
+      "fat_per_100g": 4.8,
+      "macro_pct": {
+        "protein": 22.8,
+        "carbs": 46.7,
+        "fat": 30.4
+      }
+    },
+    {
+      "name": "pancakes",
+      "label": "pancakes",
+      "serving_g": 150,
+      "matched": "Pancakes, plain",
+      "source": "api",
+      "calories": 423.0,
+      "protein": 11.1,
+      "carbs": 53.0,
+      "fat": 18.1,
+      "calories_per_100g": 282.0,
+      "protein_per_100g": 7.4,
+      "carbs_per_100g": 35.3,
+      "fat_per_100g": 12.1,
+      "macro_pct": {
+        "protein": 10.6,
+        "carbs": 50.6,
+        "fat": 38.9
+      }
+    },
+    {
+      "name": "pizza",
+      "label": "pizza",
+      "serving_g": 107,
+      "matched": "PIZZA HUT 12\" Cheese Pizza, Pan Crust",
+      "source": "api",
+      "calories": 299.6,
+      "protein": 12.5,
+      "carbs": 32.0,
+      "fat": 13.5,
+      "calories_per_100g": 280.0,
+      "protein_per_100g": 11.7,
+      "carbs_per_100g": 29.9,
+      "fat_per_100g": 12.6,
+      "macro_pct": {
+        "protein": 16.7,
+        "carbs": 42.7,
+        "fat": 40.6
+      }
+    },
+    {
+      "name": "samosa",
+      "label": "samosa",
+      "serving_g": 60,
+      "matched": "Samosa",
+      "source": "api",
+      "calories": 186.0,
+      "protein": 3.1,
+      "carbs": 19.9,
+      "fat": 10.5,
+      "calories_per_100g": 310.0,
+      "protein_per_100g": 5.2,
+      "carbs_per_100g": 33.2,
+      "fat_per_100g": 17.5,
+      "macro_pct": {
+        "protein": 6.6,
+        "carbs": 42.7,
+        "fat": 50.7
+      }
+    },
+    {
+      "name": "sushi",
+      "label": "sushi",
+      "serving_g": 160,
+      "matched": "Sushi, NFS",
+      "source": "api",
+      "calories": 150.4,
+      "protein": 4.7,
+      "carbs": 29.4,
+      "fat": 1.1,
+      "calories_per_100g": 94.0,
+      "protein_per_100g": 2.9,
+      "carbs_per_100g": 18.4,
+      "fat_per_100g": 0.7,
+      "macro_pct": {
+        "protein": 12.9,
+        "carbs": 80.4,
+        "fat": 6.8
+      }
+    },
+    {
+      "name": "tacos",
+      "label": "tacos",
+      "serving_g": 170,
+      "matched": "Taco, NFS",
+      "source": "api",
+      "calories": 418.2,
+      "protein": 26.0,
+      "carbs": 26.6,
+      "fat": 23.1,
+      "calories_per_100g": 246.0,
+      "protein_per_100g": 15.3,
+      "carbs_per_100g": 15.6,
+      "fat_per_100g": 13.6,
+      "macro_pct": {
+        "protein": 24.9,
+        "carbs": 25.4,
+        "fat": 49.7
+      }
+    },
+    {
+      "name": "waffles",
+      "label": "waffles",
+      "serving_g": 130,
+      "matched": "Waffle, NFS",
+      "source": "api",
+      "calories": 401.7,
+      "protein": 9.6,
+      "carbs": 62.9,
+      "fat": 12.3,
+      "calories_per_100g": 309.0,
+      "protein_per_100g": 7.4,
+      "carbs_per_100g": 48.4,
+      "fat_per_100g": 9.5,
+      "macro_pct": {
+        "protein": 9.6,
+        "carbs": 62.8,
+        "fat": 27.6
+      }
+    }
+  ]
+}

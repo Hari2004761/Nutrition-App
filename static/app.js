@@ -140,13 +140,27 @@
     if (item.has_data === false || item.calories_per_100g == null) return "";
     var serving = "";
     if (item.serving_g != null) {
-      var grams = Math.round(item.serving_g) + "g serving";
-      serving = item.count > 1
-        ? " (" + item.count + " &times; " + grams + ")"
-        : " (" + grams + ")";
+      var grams = Math.round(item.serving_g) + "g";
+      var qty = item.quantity || 1;
+      serving = item.countable
+        ? " (" + qty + " &times; " + grams + ")"
+        : " (" + grams + " serving)";
     }
     return item.calories.toFixed(0) + " kcal total" + serving +
            " &nbsp;&middot;&nbsp; " + item.calories_per_100g.toFixed(0) + " kcal/100g";
+  }
+
+  /* How many pieces were eaten is the user's call: the detector's region count
+     both over- and under-counts, so it never multiplies anything. */
+  function quantityControl(item, idx) {
+    if (!item.countable || item.has_data === false || !item.serving_g) return "";
+    return '' +
+      '<div class="qty-row" data-idx="' + idx + '">' +
+      '  <span class="portion-label">Quantity</span>' +
+      '  <input type="number" class="portion-input qty-input" id="pq' + idx + '"' +
+      '         min="1" max="' + MAX_QTY + '" step="1" value="1"' +
+      '         aria-label="Number of pieces">' +
+      '</div>';
   }
 
   /* The serving weight is a fixed per-class estimate — the pipeline cannot measure
@@ -156,9 +170,9 @@
     var std = Math.round(item.serving_g);
     var min = Math.max(5, Math.round(std * 0.25));
     var max = Math.round(std * 3);
-    return '' +
+    return quantityControl(item, idx) +
       '<div class="portion-row" data-idx="' + idx + '">' +
-      '  <span class="portion-label">Portion' + (item.count > 1 ? " (each)" : "") + '</span>' +
+      '  <span class="portion-label">' + (item.countable ? "Per item" : "Portion") + '</span>' +
       '  <input type="range" class="portion-slider" id="pr' + idx + '"' +
       '         min="' + min + '" max="' + max + '" step="1" value="' + std + '"' +
       '         aria-label="Portion size in grams">' +
@@ -175,7 +189,8 @@
   }
 
   function foodCard(item, idx) {
-    var name = titleCase(item.name) + (item.count > 1 ? " ×" + item.count : "");
+    var name = titleCase(item.name);
+    var regions = item.regions || 1;
     var badge = confBadge(item.confidence);
     var src = item.source === "api" ? "USDA API" : "local fallback";
     var matched = (item.matched || "—").slice(0, 55);
@@ -191,7 +206,8 @@
       '  <p class="food-density" id="density' + idx + '"' + (density ? "" : " hidden") +
       '>' + density + '</p>' +
       portionControl(item, idx) +
-      '  <p class="food-source">' + src + ' &nbsp;&middot;&nbsp; ' + escapeHtml(matched) + '</p>' +
+      '  <p class="food-source">Detected in ' + regions + ' region' + (regions > 1 ? "s" : "") +
+      ' &nbsp;&middot;&nbsp; ' + src + ' &nbsp;&middot;&nbsp; ' + escapeHtml(matched) + '</p>' +
       '</div>';
   }
 
@@ -251,6 +267,7 @@
     portions = rec.map(function (item) {
       return item.has_data === false ? null : (item.serving_g || null);
     });
+    quantities = rec.map(function () { return 1; });
 
     $("metricGrid").innerHTML = rec.length ? metricCards(totals) : "";
     $("metricGrid").hidden = !rec.length;
@@ -408,12 +425,13 @@
      values the browser already has, so a correction costs no round trip. */
   var analysis = null;    // the last /api/analyze response, unmodified
   var portions = [];      // chosen grams per recognised item, index-aligned
+  var quantities = [];    // pieces per recognised item; stays 1 for uncountables
+  var MAX_QTY = 50;
 
   /* Macro densities follow from the serving weight by the same linear relation. */
   function per100(item) {
-    var count = item.count || 1;
     if (item.has_data === false || !item.serving_g) return null;
-    var k = 100 / (item.serving_g * count);
+    var k = 100 / item.serving_g;
     return {
       calories: item.calories_per_100g != null
         ? item.calories_per_100g
@@ -428,10 +446,13 @@
     var per = per100(item);
     var grams = portions[idx];
     if (!per || grams == null) return item;      // nothing to scale it by
-    var factor = grams * (item.count || 1) / 100;
+    var qty = item.countable ? (quantities[idx] || 1) : 1;
+    var factor = grams * qty / 100;
     return {
       name:       item.name,
-      count:      item.count,
+      regions:    item.regions,
+      countable:  item.countable,
+      quantity:   qty,
       confidence: item.confidence,
       source:     item.source,
       matched:    item.matched,
@@ -528,9 +549,28 @@
     setPortion(idx, Math.round(analysis.recognized[idx].serving_g), null);
   }
 
+  function onQuantityInput(e) {
+    var el = e.target;
+    if (!el || !el.classList || !el.classList.contains("qty-input")) return;
+    var idx = parseInt(el.id.replace("pq", ""), 10);
+    if (!analysis || !analysis.recognized[idx]) return;
+
+    var val = parseInt(el.value, 10);
+    if (!isFinite(val) || val < 1) {
+      if (e.type === "change") el.value = quantities[idx];
+      return;
+    }
+    val = Math.min(MAX_QTY, val);
+    if (e.type === "change") el.value = val;   // drops a typed fraction or overshoot
+    quantities[idx] = val;
+    applyPortions(false);
+  }
+
   /* Bound once on the container that outlives every re-render, so listeners never stack. */
   $("cardColumn").addEventListener("input", onPortionInput);
   $("cardColumn").addEventListener("change", onPortionInput);
+  $("cardColumn").addEventListener("input", onQuantityInput);
+  $("cardColumn").addEventListener("change", onQuantityInput);
   $("cardColumn").addEventListener("click", onPortionClick);
 
   /* ══════════════════ CHAT (Gemini) ══════════════════ */
@@ -891,6 +931,116 @@
     if (!run) return;
     $("lossChart").src = "data:image/png;base64," + run.loss_chart;
     $("accChart").src = "data:image/png;base64," + run.acc_chart;
+  }
+
+  /* ══════════════════ AUTH (Supabase) ══════════════════
+     Optional: analysis never waits on it. If the CDN script or the config is
+     missing, the controls simply stay hidden. */
+  var sb = null;
+  var authMode = "login";
+
+  if (window.SUPABASE_CONFIG && window.supabase && window.supabase.createClient) {
+    sb = window.supabase.createClient(window.SUPABASE_CONFIG.url,
+                                      window.SUPABASE_CONFIG.key);
+  }
+
+  /* fetch() with the user's access token attached; rejects when logged out.
+     getSession() refreshes an expired token before handing it over. */
+  function authFetch(url, opts) {
+    if (!sb) return Promise.reject(new Error("Login is not available."));
+    return sb.auth.getSession().then(function (res) {
+      var session = res.data && res.data.session;
+      if (!session) throw new Error("Please log in first.");
+      var o = {};
+      for (var k in opts || {}) { o[k] = opts[k]; }
+      o.headers = new Headers((opts && opts.headers) || {});
+      o.headers.set("Authorization", "Bearer " + session.access_token);
+      return fetch(url, o);
+    });
+  }
+  window.FoodLens = { authFetch: authFetch };
+
+  function renderAuth(session) {
+    var user = session && session.user;
+    $("loginBtn").hidden = !!user;
+    $("authUser").hidden = !user;
+    $("authEmail").textContent = user ? user.email : "";
+    $("authEmail").title = user ? user.email : "";
+  }
+
+  function authMsg(kind, text) {
+    $("authError").hidden = kind !== "error";
+    $("authInfo").hidden = kind !== "info";
+    if (kind) $(kind === "error" ? "authError" : "authInfo").textContent = text;
+  }
+
+  function setAuthMode(mode) {
+    authMode = mode;
+    var signup = mode === "signup";
+    document.querySelectorAll(".auth-tab").forEach(function (t) {
+      var on = t.dataset.mode === mode;
+      t.classList.toggle("active", on);
+      t.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    $("authTitle").textContent = signup ? "Create an account" : "Log in to FoodLens";
+    $("authSubmit").textContent = signup ? "Sign up" : "Log in";
+    $("authPasswordInput").autocomplete = signup ? "new-password" : "current-password";
+    authMsg(null);
+  }
+
+  if (sb) {
+    var dialog = $("authDialog");
+    $("authBar").hidden = false;
+    sb.auth.onAuthStateChange(function (_event, session) { renderAuth(session); });
+
+    $("loginBtn").addEventListener("click", function () {
+      setAuthMode("login");
+      $("authForm").reset();
+      dialog.showModal();
+    });
+    $("authClose").addEventListener("click", function () { dialog.close(); });
+    dialog.addEventListener("click", function (e) {
+      if (e.target === dialog) dialog.close();     // backdrop click
+    });
+    document.querySelectorAll(".auth-tab").forEach(function (t) {
+      t.addEventListener("click", function () { setAuthMode(t.dataset.mode); });
+    });
+
+    $("authForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      var email = $("authEmailInput").value.trim();
+      var password = $("authPasswordInput").value;
+      if (!email || !password) { authMsg("error", "Enter your email and password."); return; }
+      if (authMode === "signup" && password.length < 6) {
+        authMsg("error", "Password must be at least 6 characters."); return;
+      }
+
+      var submit = $("authSubmit");
+      submit.disabled = true;
+      authMsg(null);
+      var call = authMode === "signup"
+        ? sb.auth.signUp({ email: email, password: password })
+        : sb.auth.signInWithPassword({ email: email, password: password });
+
+      call.then(function (res) {
+        if (res.error) { authMsg("error", res.error.message); return; }
+        if (!res.data.session) {
+          // email confirmation is on: no session until the link is clicked
+          setAuthMode("login");
+          authMsg("info", "Check your inbox for a confirmation link, then log in.");
+          return;
+        }
+        dialog.close();
+      }).catch(function (err) {
+        authMsg("error", err.message || "Could not reach the login server.");
+      }).finally(function () {
+        submit.disabled = false;
+      });
+    });
+
+    $("logoutBtn").addEventListener("click", function () {
+      sb.auth.signOut().then(function () { renderAuth(null); });
+    });
   }
 
   showView("analysis");

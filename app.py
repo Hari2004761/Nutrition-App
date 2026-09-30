@@ -508,15 +508,12 @@ def _conf_class(conf):
 
 def food_card(entry):
     n     = entry["nutrition"]
-    count = entry["count"]
     name  = entry["name"].replace("_", " ").title()
-    if count > 1:
-        name += f" &times;{count}"
     c_class, c_label, border = _conf_class(entry["conf"])
-    kcal = (n["calories"] or 0) * count
-    pro  = (n["protein"]  or 0) * count
-    carb = (n["carbs"]    or 0) * count
-    fat  = (n["fat"]      or 0) * count
+    kcal = n["calories"] or 0
+    pro  = n["protein"]  or 0
+    carb = n["carbs"]    or 0
+    fat  = n["fat"]      or 0
     src  = "USDA API" if n["source"] == "api" else "local fallback"
     matched = (n["matched"] or "—")[:55]
     return f"""
@@ -690,10 +687,10 @@ if "Food Analysis" in page:
                     )
                 annotated = annotate_image(pil_img, regions, region_labels)
 
-                total_kcal = sum((e["nutrition"]["calories"] or 0) * e["count"] for e in merged)
-                total_pro  = sum((e["nutrition"]["protein"]  or 0) * e["count"] for e in merged)
-                total_carb = sum((e["nutrition"]["carbs"]    or 0) * e["count"] for e in merged)
-                total_fat  = sum((e["nutrition"]["fat"]      or 0) * e["count"] for e in merged)
+                total_kcal = sum(e["nutrition"]["calories"] or 0 for e in merged)
+                total_pro  = sum(e["nutrition"]["protein"]  or 0 for e in merged)
+                total_carb = sum(e["nutrition"]["carbs"]    or 0 for e in merged)
+                total_fat  = sum(e["nutrition"]["fat"]      or 0 for e in merged)
 
                 if merged:
                     st.markdown(summary_metrics(total_kcal, total_pro, total_carb, total_fat),
