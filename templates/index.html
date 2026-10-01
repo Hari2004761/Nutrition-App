@@ -89,9 +89,12 @@
     <div class="page-header">
       <p class="page-title" id="pageTitle">Culinary Intelligence</p>
 
-      <!-- shown by app.js only when the server has login configured -->
-      <div class="auth-bar" id="authBar" hidden>
-        <button class="btn-ghost" id="loginBtn" type="button">Log in</button>
+      <!-- filled in by app.js from /auth/session -->
+      <div class="auth-bar" id="authBar">
+        <div class="auth-user" id="authGuest" hidden>
+          <span class="auth-email" id="guestText"></span>
+          <a class="btn-ghost" id="guestLogin" href="/login">Log in</a>
+        </div>
         <div class="auth-user" id="authUser" hidden>
           <span class="auth-email" id="authEmail"></span>
           <button class="btn-ghost" id="logoutBtn" type="button">Log out</button>
@@ -99,51 +102,10 @@
       </div>
     </div>
 
-    <!-- ─────────── LOG IN / SIGN UP ─────────── -->
-    <dialog class="auth-dialog" id="authDialog" aria-labelledby="authTitle">
-      <form class="auth-form" id="authForm" novalidate>
-        <div class="auth-head">
-          <p class="auth-title" id="authTitle">Log in to FoodLens</p>
-          <button class="auth-close" id="authClose" type="button" aria-label="Close">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
-                 stroke="currentColor" stroke-width="2.2"
-                 stroke-linecap="round" stroke-linejoin="round">
-              <line x1="18" y1="6" x2="6" y2="18"></line>
-              <line x1="6" y1="6" x2="18" y2="18"></line>
-            </svg>
-          </button>
-        </div>
-
-        <div class="auth-tabs" role="tablist">
-          <button class="auth-tab active" type="button" data-mode="login"
-                  role="tab" aria-selected="true">Log in</button>
-          <button class="auth-tab" type="button" data-mode="signup"
-                  role="tab" aria-selected="false">Sign up</button>
-        </div>
-
-        <label class="field-label" for="authEmailInput">Email</label>
-        <input class="chat-input auth-input" id="authEmailInput" type="email"
-               autocomplete="email" required>
-
-        <label class="field-label" for="authPasswordInput">Password</label>
-        <input class="chat-input auth-input" id="authPasswordInput" type="password"
-               autocomplete="current-password" minlength="6" required>
-
-        <div class="alert alert-error auth-msg" id="authError" hidden></div>
-        <div class="alert alert-ok auth-msg" id="authInfo" hidden></div>
-
-        <button class="btn-primary" id="authSubmit" type="submit">Log in</button>
-        <p class="auth-note">
-          Photo analysis works without an account. Logging in is only needed
-          for saved meals and history.
-        </p>
-      </form>
-    </dialog>
-
     <!-- ─────────── FOOD ANALYSIS ─────────── -->
     <section class="view" id="view-analysis">
 
-      <div class="upload-card">
+      <div class="upload-card" id="uploadCard">
         <label class="dropzone" id="dropzone" for="fileInput">
           <div class="dz-icon">
             <svg viewBox="0 0 24 24" width="30" height="30" fill="none"
@@ -171,6 +133,24 @@
         <button class="btn-primary" id="analyzeBtn" type="button" disabled>
           Analyze Photo
         </button>
+      </div>
+
+      <div class="limit-card" id="limitCard" hidden>
+        <div class="empty-icon">
+          <!-- Lucide "lock" -->
+          <svg viewBox="0 0 24 24" width="40" height="40" fill="none"
+               stroke="currentColor" stroke-width="1.6"
+               stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+          </svg>
+        </div>
+        <p class="empty-title">You've used your free analyses</p>
+        <p class="empty-body">
+          Guests can analyse <span id="limitCount">3</span> photos. Log in or
+          create a free account to keep analysing your meals.
+        </p>
+        <a class="btn-primary btn-link limit-btn" href="/login">Log in or sign up</a>
       </div>
 
       <div class="alert alert-error" id="errorBox" hidden></div>
@@ -253,6 +233,11 @@
               </div>
             </div>
 
+            <div class="chat-locked" id="chatLocked" hidden>
+              <p>Log in to use the assistant.</p>
+              <a class="btn-ghost" href="/login">Log in</a>
+            </div>
+
             <div class="chat-chips" id="chatChips">
               <button class="chat-chip" type="button">How can I make this lower calorie?</button>
               <button class="chat-chip" type="button">What would you swap out here?</button>
@@ -261,22 +246,24 @@
               <button class="chat-chip" type="button">How can I make this meal more healthy?</button>
             </div>
 
-            <div class="chat-log" id="chatLog"></div>
+            <div class="chat-open" id="chatOpen">
+              <div class="chat-log" id="chatLog"></div>
 
-            <div class="chat-typing" id="chatTyping" hidden>
-              <span class="chat-dot"></span>
-              <span class="chat-dot"></span>
-              <span class="chat-dot"></span>
-              <span class="chat-typing-text">Thinking &hellip;</span>
+              <div class="chat-typing" id="chatTyping" hidden>
+                <span class="chat-dot"></span>
+                <span class="chat-dot"></span>
+                <span class="chat-dot"></span>
+                <span class="chat-typing-text">Thinking &hellip;</span>
+              </div>
+
+              <div class="alert alert-error" id="chatErrorBox" hidden></div>
+
+              <form class="chat-row" id="chatForm" autocomplete="off">
+                <input type="text" id="chatInput" class="chat-input" maxlength="2000"
+                       placeholder="Ask about this meal &hellip;">
+                <button class="btn-send" id="chatSend" type="submit">Send</button>
+              </form>
             </div>
-
-            <div class="alert alert-error" id="chatErrorBox" hidden></div>
-
-            <form class="chat-row" id="chatForm" autocomplete="off">
-              <input type="text" id="chatInput" class="chat-input" maxlength="2000"
-                     placeholder="Ask about this meal &hellip;">
-              <button class="btn-send" id="chatSend" type="submit">Send</button>
-            </form>
 
             <p class="chat-disclaimer">
               General food and nutrition suggestions only &mdash; not medical

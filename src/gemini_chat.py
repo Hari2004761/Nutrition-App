@@ -6,13 +6,14 @@ Answers are grounded in the meal the pipeline just analysed: the foods it
 recognised and their calories/macros are handed to Gemini as context, so the
 reply talks about *this* plate rather than food in general.
 
-Requires gemini_api_key.txt in the project root (one line, just the key).
+Requires GEMINI_API_KEY in src/.env.
 Free key at: https://aistudio.google.com/app/apikey
 """
 import sys
-from pathlib import Path
 
-_KEY_FILE = Path("gemini_api_key.txt")
+from settings import get_setting
+
+KEY_NAME = "GEMINI_API_KEY"
 MODEL_NAME = "gemini-3.5-flash-lite"
 
 # Scope boundary: general nutrition guidance, never clinical instructions.
@@ -57,13 +58,9 @@ class GeminiError(RuntimeError):
     """Anything that stopped us from getting an answer back from Gemini."""
 
 
-def read_api_key(key_file=_KEY_FILE):
-    """Return the API key, or None when the file is missing or empty."""
-    try:
-        key = Path(key_file).read_text(encoding="utf-8").strip()
-    except (OSError, UnicodeDecodeError):
-        return None
-    return key or None
+def read_api_key():
+    """Return the API key, or None when it is missing or empty."""
+    return get_setting(KEY_NAME)
 
 
 def format_meal_context(recognized, totals, unrecognized=None):
@@ -135,8 +132,8 @@ def ask_gemini(message, recognized=None, totals=None, unrecognized=None,
     api_key = api_key or read_api_key()
     if not api_key:
         raise GeminiError(
-            f"No Gemini API key found. Put your key in {_KEY_FILE} "
-            f"(one line, nothing else) and try again."
+            f"No Gemini API key found. Set {KEY_NAME} in src/.env "
+            f"and try again."
         )
 
     try:
@@ -178,7 +175,7 @@ def _friendly_error(exc):
     if "api key" in low or "api_key" in low or "unauthenticated" in name.lower() \
             or "permissiondenied" in name.lower():
         return ("Gemini rejected the API key. Check the key in "
-                f"{_KEY_FILE} is valid and has the Gemini API enabled.")
+                f"{KEY_NAME} in src/.env is valid and has the Gemini API enabled.")
     if "resourceexhausted" in name.lower() or "quota" in low or "429" in detail:
         return "Gemini's rate limit was hit. Wait a moment and ask again."
     if "deadline" in low or "timeout" in low:

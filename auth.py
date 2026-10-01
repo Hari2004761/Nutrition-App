@@ -1,9 +1,10 @@
-"""Supabase login for the Flask back end, with tokens kept in HttpOnly cookies.
+"""Access control for the Flask back end: Supabase logins and guest mode.
 
-The browser never sees a token: Flask calls Supabase Auth over plain HTTP with
-the publishable key, stores the access/refresh pair in cookies, and verifies
-the access token locally against the project's public JWKS (ES256). Lives
-outside src/ because it imports Flask.
+Every /api/* request needs a token: either a Supabase session (access/refresh
+pair in HttpOnly cookies) or a signed guest cookie. The browser never sees a
+Supabase token: Flask calls Supabase Auth over plain HTTP with the publishable
+key and verifies access tokens locally against the project's public JWKS
+(ES256). Lives outside src/ because it imports Flask.
 """
 import os
 from functools import wraps
@@ -11,7 +12,9 @@ from urllib.parse import urlsplit
 
 import jwt
 import requests
-from flask import Blueprint, after_this_request, g, jsonify, request
+from flask import (Blueprint, after_this_request, current_app, g, jsonify,
+                   make_response, request)
+from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 SUPABASE_URL = (os.environ.get("SUPABASE_URL") or "").rstrip("/")
 SUPABASE_PUBLISHABLE_KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY") or ""
@@ -29,12 +32,14 @@ HTTP_TIMEOUT_S = 10
 # The cookie only has to outlive the refresh token; the access token's own
 # `exp` is what bounds a session.
 COOKIE_MAX_AGE = 30 * 24 * 3600
+GUEST_LIMIT = 3
 
 # __Host- makes the browser refuse the cookie unless it is Secure, host-only and
 # Path=/, which blocks a sibling subdomain from planting one. Needs HTTPS.
 _prefix = "__Host-" if COOKIE_SECURE else ""
 ACCESS_COOKIE = _prefix + "sb-access"
 REFRESH_COOKIE = _prefix + "sb-refresh"
+GUEST_COOKIE = _prefix + "fl-guest"
 
 _jwks = None
 if SUPABASE_URL:
@@ -47,11 +52,19 @@ def auth_configured():
     return bool(SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY)
 
 
+def guest_configured():
+    return bool(current_app.secret_key)
+
+
 class AuthError(Exception):
     """A failure already phrased for the user, with the HTTP status to send."""
     def __init__(self, message, status):
         super().__init__(message)
         self.status = status
+
+
+def _deny(status, code, message):
+    return jsonify({"error": message, "code": code}), status
 
 
 # ── Supabase Auth over HTTP ──────────────────────────────────────────────────
@@ -120,14 +133,50 @@ def _public_user(claims):
     return {"id": claims["sub"], "email": claims.get("email")}
 
 
+# ── Guest cookie ─────────────────────────────────────────────────────────────
+# Signed with the app's SECRET_KEY, so the count can't be edited. Deleting the
+# cookie does reset it — a known limit of browser-side counting.
+def _guest_signer():
+    return URLSafeTimedSerializer(current_app.secret_key, salt="foodlens-guest")
+
+
+def guest_count():
+    """Analyses this guest has used, or None without a valid guest cookie."""
+    raw = request.cookies.get(GUEST_COOKIE)
+    if not raw or not guest_configured():
+        return None
+    try:
+        data = _guest_signer().loads(raw, max_age=COOKIE_MAX_AGE)
+        return max(0, int(data["n"]))
+    except (BadSignature, KeyError, TypeError, ValueError):
+        return None
+
+
+def _set_guest_cookie(response, count):
+    response.set_cookie(GUEST_COOKIE, _guest_signer().dumps({"n": count}),
+                        max_age=COOKIE_MAX_AGE, **_cookie_opts())
+
+
+def _guest_info(count):
+    return {"remaining": max(0, GUEST_LIMIT - count), "limit": GUEST_LIMIT}
+
+
+# ── Who is asking ────────────────────────────────────────────────────────────
 def current_user():
     """Verified claims for the request's session cookies, or None if logged out.
 
     An expired access token is swapped for a new pair via the refresh token and
     the cookies are rewritten; if that is refused, the cookies are cleared.
     Raises AuthError(503) when Supabase can't be reached — an outage shouldn't
-    log everyone out.
+    log everyone out. Resolved once per request.
     """
+    if "auth_user" in g:
+        return g.auth_user
+    g.auth_user = _resolve_user() if _jwks is not None else None
+    return g.auth_user
+
+
+def _resolve_user():
     access = request.cookies.get(ACCESS_COOKIE)
     refresh = request.cookies.get(REFRESH_COOKIE)
     if not access and not refresh:
@@ -162,6 +211,38 @@ def current_user():
     return claims
 
 
+def is_guest():
+    """True when the request is running on a guest cookie rather than a login."""
+    try:
+        return current_user() is None
+    except AuthError:
+        return True
+
+
+def has_access():
+    """Whether the visitor may see the app: a login, or a guest cookie."""
+    try:
+        if current_user():
+            return True
+    except AuthError:
+        pass
+    return guest_count() is not None
+
+
+def require_token():
+    """before_request hook: every /api/* call needs a login or a guest cookie."""
+    if not request.path.startswith("/api/"):
+        return None
+    try:
+        if current_user():
+            return None
+    except AuthError as exc:
+        return _deny(exc.status, "auth_unavailable", str(exc))
+    if guest_count() is not None:
+        return None
+    return _deny(401, "auth_required", "Log in or continue as a guest first.")
+
+
 def require_user(view):
     """Reject the request unless its session cookies hold a valid login.
 
@@ -170,15 +251,35 @@ def require_user(view):
     @wraps(view)
     def wrapper(*args, **kwargs):
         if _jwks is None:
-            return jsonify({"error": "Login is not configured on this server."}), 503
+            return _deny(503, "auth_unavailable", "Login is not configured on this server.")
         try:
             claims = current_user()
         except AuthError as exc:
-            return jsonify({"error": str(exc)}), exc.status
+            return _deny(exc.status, "auth_unavailable", str(exc))
         if claims is None:
-            return jsonify({"error": "Please log in."}), 401
+            return _deny(401, "login_required", "Log in to use this feature.")
         g.user = claims
         return view(*args, **kwargs)
+    return wrapper
+
+
+def guest_quota(view):
+    """Logged-in users are unlimited; guests get GUEST_LIMIT successful runs."""
+    @wraps(view)
+    def wrapper(*args, **kwargs):
+        if not is_guest():
+            return view(*args, **kwargs)
+        used = guest_count()
+        if used is None:
+            return _deny(401, "auth_required", "Log in or continue as a guest first.")
+        if used >= GUEST_LIMIT:
+            return _deny(401, "guest_limit_reached",
+                         f"You've used your {GUEST_LIMIT} free analyses. "
+                         f"Log in or sign up to keep going.")
+        response = make_response(view(*args, **kwargs))
+        if response.status_code == 200:
+            _set_guest_cookie(response, used + 1)
+        return response
     return wrapper
 
 
@@ -216,9 +317,7 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 
 @auth_bp.before_request
-def _auth_guard():
-    if not auth_configured():
-        return jsonify({"error": "Login is not configured on this server."}), 503
+def _json_only():
     # A cross-site HTML form can't send JSON without a CORS preflight, which
     # this app never grants.
     if request.method == "POST" and not request.is_json:
@@ -232,6 +331,10 @@ def _no_store(response):
     return response
 
 
+def _login_unavailable():
+    return jsonify({"error": "Login is not configured on this server."}), 503
+
+
 def _credentials():
     data = request.get_json(silent=True) or {}
     email = str(data.get("email") or "").strip()
@@ -243,6 +346,8 @@ def _credentials():
 
 @auth_bp.post("/signup")
 def signup():
+    if not auth_configured():
+        return _login_unavailable()
     try:
         email, password = _credentials()
         data = _supabase("/signup", {"email": email, "password": password})
@@ -259,6 +364,8 @@ def signup():
 
 @auth_bp.post("/login")
 def login():
+    if not auth_configured():
+        return _login_unavailable()
     try:
         email, password = _credentials()
         data = _supabase("/token?grant_type=password",
@@ -272,30 +379,51 @@ def login():
 
 @auth_bp.post("/logout")
 def logout():
-    """End the session in Supabase, then clear the cookies whatever happens."""
+    """End the session in Supabase, then clear the cookies whatever happens.
+
+    The guest cookie is left alone, so logging out never hands back a fresh
+    set of free analyses.
+    """
     access = request.cookies.get(ACCESS_COOKIE)
     refresh = request.cookies.get(REFRESH_COOKIE)
-    try:
+    if auth_configured():
         try:
-            if not access:
-                raise jwt.ExpiredSignatureError
-            verify_token(access)
-        except jwt.PyJWTError:
-            # Supabase only accepts a live access token for logout.
-            access = _refresh(refresh)["access_token"] if refresh else None
-        if access:
-            _supabase("/logout?scope=local", token=access)
-    except (AuthError, KeyError):
-        pass    # the session is unusable or already gone; still drop the cookies
+            try:
+                if not access:
+                    raise jwt.ExpiredSignatureError
+                verify_token(access)
+            except jwt.PyJWTError:
+                # Supabase only accepts a live access token for logout.
+                access = _refresh(refresh)["access_token"] if refresh else None
+            if access:
+                _supabase("/logout?scope=local", token=access)
+        except (AuthError, KeyError):
+            pass    # the session is unusable or already gone; still drop the cookies
     _clear_session_cookies()
     return jsonify({"user": None})
 
 
+@auth_bp.post("/guest")
+def guest():
+    """Start guest mode. An existing guest keeps their count rather than resetting."""
+    if not guest_configured():
+        return jsonify({"error": "Guest mode is not configured on this server."}), 503
+    used = guest_count()
+    response = make_response(jsonify({"guest": _guest_info(used or 0)}))
+    if used is None:
+        _set_guest_cookie(response, 0)
+    return response
+
+
 @auth_bp.get("/session")
 def session():
-    """Who is logged in, for the page header; {user: null} rather than a 401."""
+    """Who is visiting, for the page header; nulls rather than a 401."""
     try:
         claims = current_user()
     except AuthError as exc:
-        return jsonify({"user": None, "error": str(exc)}), exc.status
-    return jsonify({"user": _public_user(claims) if claims else None})
+        return jsonify({"user": None, "guest": None, "error": str(exc)}), exc.status
+    if claims:
+        return jsonify({"user": _public_user(claims), "guest": None})
+    used = guest_count()
+    return jsonify({"user": None,
+                    "guest": _guest_info(used) if used is not None else None})

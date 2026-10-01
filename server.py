@@ -16,7 +16,8 @@ from pathlib import Path
 
 import torch
 from dotenv import load_dotenv
-from flask import Flask, g, jsonify, render_template, request, send_file, Response
+from flask import (Flask, Response, g, jsonify, redirect, render_template,
+                   request, send_file)
 from PIL import Image
 
 # Every module uses paths relative to the project root, so anchor the process
@@ -27,7 +28,12 @@ sys.path.insert(0, str(ROOT / "src"))
 # Before importing auth, which reads the Supabase settings at import.
 load_dotenv(ROOT / "src" / ".env")
 
-from auth import auth_bp, auth_configured, check_origin, require_user  # noqa: E402
+# Must stay below `import torch`: on this setup, cryptography (pulled in by
+# PyJWT) loading before torch makes pandas/pyarrow crash the process.
+from auth import (                                              # noqa: E402
+    auth_bp, auth_configured, check_origin, current_user, guest_configured,
+    guest_quota, has_access, is_guest, require_token, require_user, AuthError,
+)
 
 from detect import _get_yolo                                     # noqa: E402
 from predict import load_model, predict_pil                     # noqa: E402
@@ -42,7 +48,8 @@ from charts import (                                            # noqa: E402
 import dataset_nutrition                                       # noqa: E402
 from evaluate import compute_confusion, per_class_report      # noqa: E402
 from gemini_chat import (                                     # noqa: E402
-    ask_gemini, read_api_key, GeminiError, MODEL_NAME as GEMINI_MODEL,
+    ask_gemini, read_api_key, GeminiError, KEY_NAME as GEMINI_KEY_NAME,
+    MODEL_NAME as GEMINI_MODEL,
 )
 
 # ── Paths / constants ────────────────────────────────────────────────────────
@@ -51,7 +58,6 @@ YOLO_WEIGHTS  = "yolov8m-oiv7.pt"   # detect_food()'s default, which the pipelin
 HISTORY_CSV   = Path("outputs/history.csv")
 CONFUSION_PNG = Path("outputs/figures/confusion_matrix.png")
 PER_CLASS_CACHE = Path("outputs/per_class_accuracy.json")
-GEMINI_KEY_FILE = Path("gemini_api_key.txt")
 MAX_CHAT_CHARS  = 2000
 MAX_HISTORY_TURNS = 8
 DAILY_GOAL    = 2000
@@ -61,8 +67,11 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_MB * 1024 * 1024
 # The reloader is off (it would load the model twice), so reload templates instead.
 app.config["TEMPLATES_AUTO_RELOAD"] = True
-# CSRF: every POST/PUT/PATCH/DELETE must come from this app's own origin.
-app.before_request(check_origin)
+# Signs the guest cookie; guest mode stays off without it.
+app.secret_key = os.environ.get("SECRET_KEY") or None
+# Order matters: refuse cross-site writes before anything else looks at them.
+app.before_request(check_origin)        # CSRF: POST/PUT/PATCH/DELETE from this origin only
+app.before_request(require_token)       # every /api/* call needs a login or a guest cookie
 app.register_blueprint(auth_bp)
 
 # ── Model, loaded once at start-up ───────────────────────────────────────────
@@ -83,6 +92,11 @@ def init_model():
     print(f"[foodlens] classifier ready — {len(CLASSES)} classes", flush=True)
     _get_yolo(YOLO_WEIGHTS)
     print(f"[foodlens] detector ready — {YOLO_WEIGHTS}", flush=True)
+
+
+def wants_refresh():
+    """?refresh=1 rebuilds an expensive cache; guests always get the cached copy."""
+    return request.args.get("refresh") == "1" and not is_guest()
 
 
 def png_response(png_bytes):
@@ -157,9 +171,22 @@ def per_class_data(refresh=False):
 # ── Front end ────────────────────────────────────────────────────────────────
 @app.route("/")
 def index():
+    if not has_access():
+        return redirect("/login")
     return render_template("index.html", daily_goal=DAILY_GOAL,
                            conf_threshold=CLASSIFIER_CONF_THRESHOLD,
                            auth_enabled=auth_configured())
+
+
+@app.get("/login")
+def login_page():
+    try:
+        if current_user():
+            return redirect("/")
+    except AuthError:
+        pass                                # Supabase unreachable: show the form
+    return render_template("login.html", auth_enabled=auth_configured(),
+                           guest_enabled=guest_configured())
 
 
 # ── GET /api/me — the verified user behind the session cookies ─────────────
@@ -171,6 +198,7 @@ def api_me():
 
 # ── POST /api/analyze — full pipeline on an uploaded photo ───────────────────
 @app.post("/api/analyze")
+@guest_quota
 def api_analyze():
     upload = request.files.get("image") or request.files.get("file")
     if upload is None or not upload.filename:
@@ -330,7 +358,7 @@ def api_confusion_matrix():
 def api_per_class_accuracy():
     """The per-class table as JSON (used for the chart caption)."""
     try:
-        data = per_class_data(refresh=request.args.get("refresh") == "1")
+        data = per_class_data(refresh=wants_refresh())
     except Exception as exc:
         return jsonify({"error": f"Evaluation failed: {exc}"}), 500
     return jsonify(data)
@@ -339,7 +367,7 @@ def api_per_class_accuracy():
 @app.get("/api/chart/per-class-accuracy")
 def api_per_class_accuracy_chart():
     try:
-        data = per_class_data(refresh=request.args.get("refresh") == "1")
+        data = per_class_data(refresh=wants_refresh())
     except Exception as exc:
         return jsonify({"error": f"Evaluation failed: {exc}"}), 500
 
@@ -378,7 +406,7 @@ def dataset_data(refresh=False):
 def _dataset_chart(make_fig, **kwargs):
     """Shared plumbing for the three dataset charts."""
     try:
-        data = dataset_data(refresh=request.args.get("refresh") == "1")
+        data = dataset_data(refresh=wants_refresh())
     except Exception as exc:
         return jsonify({"error": f"Nutrition lookup failed: {exc}"}), 500
     fig = make_fig(data["classes"], **kwargs)
@@ -391,7 +419,7 @@ def _dataset_chart(make_fig, **kwargs):
 def api_dataset_nutrition():
     """The per-class nutrition table as JSON (used for the chart captions)."""
     try:
-        return jsonify(dataset_data(refresh=request.args.get("refresh") == "1"))
+        return jsonify(dataset_data(refresh=wants_refresh()))
     except Exception as exc:
         return jsonify({"error": f"Nutrition lookup failed: {exc}"}), 500
 
@@ -416,16 +444,18 @@ def api_dataset_calorie_density():
 
 # ── Gemini chat — dietary questions grounded in the meal just analysed ───────
 @app.get("/api/chat/status")
+@require_user
 def api_chat_status():
     """Whether a Gemini key is configured, so the UI can say so up front."""
     return jsonify({
-        "available": read_api_key(GEMINI_KEY_FILE) is not None,
-        "key_file":  str(GEMINI_KEY_FILE),
+        "available": read_api_key() is not None,
+        "key_name":  GEMINI_KEY_NAME,
         "model":     GEMINI_MODEL,
     })
 
 
 @app.post("/api/chat")
+@require_user
 def api_chat():
     """One chat turn.
 

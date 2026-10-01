@@ -24,6 +24,7 @@ CLAUDE.local.md
 .aider*
 .cursor/
 .github/copilot-instructions.md
+CODEBASE_REFERENCE.md
 
 # ─────────────────────────────────────────────────────────────
 # HUGE — datasets, virtual environment, trained weights.

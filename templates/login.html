@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Log in · FoodLens</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%232563EB'/><text x='16' y='23' font-family='Arial,sans-serif' font-size='19' font-weight='bold' fill='white' text-anchor='middle'>F</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<main class="login-page">
+  <div class="login-brand">
+    <!-- Lucide "utensils-crossed", as in the app sidebar -->
+    <svg viewBox="0 0 24 24" width="30" height="30" fill="none"
+         stroke="currentColor" stroke-width="2"
+         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="m16 2-2.3 2.3a3 3 0 0 0 0 4.2l1.8 1.8a3 3 0 0 0 4.2 0L22 8"/>
+      <path d="M15 15 3.3 3.3a4.2 4.2 0 0 0 0 6l7.3 7.3c.7.7 2 .7 2.8 0L15 15Zm0 0 7 7"/>
+      <path d="M2.1 21.8 6.4 17.5"/>
+      <path d="m9 11 1.9-1.9"/>
+    </svg>
+    <span>FoodLens</span>
+  </div>
+
+  <div class="login-card">
+    <p class="auth-title" id="authTitle">Log in to FoodLens</p>
+    <p class="login-sub">
+      Photograph a plate and get calories and macros for every item on it.
+    </p>
+
+    <form id="authForm" novalidate {% if not auth_enabled %}hidden{% endif %}>
+      <div class="auth-tabs" role="tablist">
+        <button class="auth-tab active" type="button" data-mode="login"
+                role="tab" aria-selected="true">Log in</button>
+        <button class="auth-tab" type="button" data-mode="signup"
+                role="tab" aria-selected="false">Sign up</button>
+      </div>
+
+      <label class="field-label" for="authEmailInput">Email</label>
+      <input class="chat-input auth-input" id="authEmailInput" type="email"
+             autocomplete="email" required>
+
+      <label class="field-label" for="authPasswordInput">Password</label>
+      <input class="chat-input auth-input" id="authPasswordInput" type="password"
+             autocomplete="current-password" minlength="6" required>
+
+      <div class="alert alert-error auth-msg" id="authError" hidden></div>
+      <div class="alert alert-ok auth-msg" id="authInfo" hidden></div>
+
+      <button class="btn-primary" id="authSubmit" type="submit">Log in</button>
+    </form>
+
+    {% if guest_enabled %}
+    {% if auth_enabled %}<div class="login-divider"><span>or</span></div>{% endif %}
+    <div class="alert alert-error auth-msg" id="guestError" hidden></div>
+    <button class="btn-ghost login-guest" id="guestBtn" type="button">
+      Continue as guest
+    </button>
+    <p class="auth-note">
+      Guests get 3 free photo analyses. The nutrition assistant needs an account.
+    </p>
+    {% endif %}
+
+    {% if not auth_enabled and not guest_enabled %}
+    <div class="alert alert-error">
+      Login and guest mode aren't configured on this server. Add the Supabase
+      settings and SECRET_KEY to src/.env, then restart it.
+    </div>
+    {% endif %}
+  </div>
+</main>
+
+<script src="{{ url_for('static', filename='login.js') }}"></script>
+</body>
+</html>

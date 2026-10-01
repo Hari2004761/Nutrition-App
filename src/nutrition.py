@@ -7,7 +7,7 @@ Fallback: hard-coded approximate values for the 20 known classes.
     python src/nutrition.py "pizza"
     python src/nutrition.py "chicken curry"
 
-Requires usda_api_key.txt in the project root (one line, just the key).
+Requires USDA_API_KEY in src/.env.
 Get a free key at: https://fdc.nal.usda.gov/api-key-signup.html
 """
 import json
@@ -17,10 +17,11 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from pathlib import Path
+
+from settings import get_setting
 
 _API_URL = "https://api.nal.usda.gov/fdc/v1/foods/search"
-_KEY_FILE = Path("usda_api_key.txt")
+_KEY_NAME = "USDA_API_KEY"
 
 # Realistic single-serving portions in grams; USDA reports per 100g, so these
 # scale it to what one person actually eats in a sitting.
@@ -125,11 +126,7 @@ def _canonical_key(food_name: str) -> str:
 
 
 def _read_api_key() -> str | None:
-    try:
-        key = _KEY_FILE.read_text().strip()
-        return key if key else None
-    except FileNotFoundError:
-        return None
+    return get_setting(_KEY_NAME)
 
 
 def _extract_nutrients(food_item: dict) -> dict | None:
@@ -305,7 +302,8 @@ def lookup_nutrition(food_name: str) -> dict:
         except Exception as exc:
             print(f"[nutrition] API error: {exc}", file=sys.stderr)
     else:
-        print(f"[nutrition] {_KEY_FILE} not found — using fallback only", file=sys.stderr)
+        print(f"[nutrition] {_KEY_NAME} not set in src/.env — using fallback only",
+              file=sys.stderr)
 
     if key in _FALLBACK:
         entry = _FALLBACK[key]

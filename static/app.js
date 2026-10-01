@@ -91,14 +91,17 @@
     var fd = new FormData();
     fd.append("image", selectedFile);
 
-    fetch("/api/analyze", { method: "POST", body: fd })
+    apiFetch("/api/analyze", { method: "POST", body: fd })
       .then(function (res) {
         return res.json().then(function (data) {
           if (!res.ok) throw new Error(data.error || ("Request failed (" + res.status + ")"));
           return data;
         });
       })
-      .then(render)
+      .then(function (data) {
+        render(data);
+        if (isGuest()) loadViewer();
+      })
       .catch(function (err) {
         showError(err.message || "Analysis failed.");
         $("emptyState").hidden = false;
@@ -310,7 +313,7 @@
                         "&carbs=" + totals.carbs.toFixed(2) +
                         "&fat=" + totals.fat.toFixed(2);
 
-    fetch("/api/chart/calorie-bar", {
+    apiFetch("/api/chart/calorie-bar", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ recognized: items })
@@ -598,7 +601,16 @@
     chatInput.value = "";
     setChatEnabled(true);
     $("chatSection").hidden = false;
-    checkChatKey();
+    renderChatAccess();
+    if (!isGuest()) checkChatKey();
+  }
+
+  /* The assistant is login-only; guests see a prompt to log in instead. */
+  function renderChatAccess() {
+    var locked = isGuest();
+    $("chatLocked").hidden = !locked;
+    $("chatChips").hidden = locked;
+    $("chatOpen").hidden = locked;
   }
 
   /* Portion corrections must reach Gemini too, without wiping the conversation. */
@@ -626,12 +638,12 @@
   function checkChatKey() {
     if (chatKeyChecked) return;
     chatKeyChecked = true;
-    fetch("/api/chat/status")
+    apiFetch("/api/chat/status")
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (st) {
         if (st && st.available === false) {
-          showChatError("Chat is unavailable: no Gemini API key found. Put " +
-                        "your key in " + (st.key_file || "gemini_api_key.txt") +
+          showChatError("Chat is unavailable: no Gemini API key found. Set " +
+                        (st.key_name || "GEMINI_API_KEY") + " in src/.env" +
                         " and reload this page — no restart needed.");
           setChatEnabled(false);
         }
@@ -705,7 +717,7 @@
     setChatEnabled(false);
     $("chatTyping").hidden = false;
 
-    fetch("/api/chat", {
+    apiFetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -774,7 +786,7 @@
     }
     if (!refresh) drawCharts(null);
 
-    fetch("/api/dataset-nutrition" + (refresh ? "?refresh=1" : ""))
+    apiFetch("/api/dataset-nutrition" + (refresh ? "?refresh=1" : ""))
       .then(function (res) {
         return res.json().then(function (data) {
           if (!res.ok) throw new Error(data.error || "Could not load nutrition data.");
@@ -869,7 +881,7 @@
     if (trainingRuns || trainingLoading) return;
     trainingLoading = true;
 
-    fetch("/api/training-runs")
+    apiFetch("/api/training-runs")
       .then(function (res) {
         return res.json().then(function (data) {
           if (!res.ok) throw new Error(data.error || "Could not load training history.");
@@ -903,7 +915,7 @@
     perClassLoaded = true;
     $("perClassChart").src = "/api/chart/per-class-accuracy";
 
-    fetch("/api/per-class-accuracy")
+    apiFetch("/api/per-class-accuracy")
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (data) {
         if (!data || !data.classes || !data.classes.length) return;
@@ -933,14 +945,13 @@
     $("accChart").src = "data:image/png;base64," + run.acc_chart;
   }
 
-  /* ══════════════════ AUTH ══════════════════
-     Tokens live in HttpOnly cookies that Flask sets; this code never sees them.
-     Optional: analysis never waits on it, and without login configured on the
-     server the controls simply stay hidden. */
-  var authMode = "login";
+  /* ══════════════════ ACCESS ══════════════════
+     Everyone on this page is logged in or a guest — the server sends anyone
+     else to /login. Tokens live in HttpOnly cookies; this code never sees them. */
+  var viewer = { user: null, guest: null };
 
-  /* fetch() for endpoints that need a user: sends the session cookies, sends a
-     plain-object body as JSON, and drops back to the logged-out header on 401. */
+  /* fetch() for the API: sends the cookies, sends a plain-object body as JSON,
+     and reacts to the access errors the server marks with a `code`. */
   function apiFetch(url, opts) {
     var o = {};
     for (var k in opts || {}) { o[k] = opts[k]; }
@@ -951,104 +962,65 @@
       o.headers.set("Content-Type", "application/json");
     }
     return fetch(url, o).then(function (res) {
-      if (res.status === 401) renderAuth(null);
+      if (res.status === 401) {
+        res.clone().json().then(function (data) {
+          if (data.code === "auth_required") window.location.replace("/login");
+          else if (data.code === "guest_limit_reached") loadViewer();
+        }).catch(function () { /* not JSON: leave it to the caller */ });
+      }
       return res;
     });
   }
   window.FoodLens = { apiFetch: apiFetch };
 
-  function authPost(url, body) {
-    return apiFetch(url, { method: "POST", body: body || {} }).then(function (res) {
-      return res.json().then(function (data) {
-        if (!res.ok) throw new Error(data.error || ("Request failed (" + res.status + ")"));
-        return data;
-      });
-    });
+  function isGuest() { return !viewer.user; }
+
+  function loadViewer() {
+    return fetch("/auth/session", { credentials: "same-origin" })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (!data.user && !data.guest) { window.location.replace("/login"); return; }
+        viewer = { user: data.user, guest: data.guest };
+        renderViewer();
+      })
+      .catch(function () { /* keep the header as is; the API still enforces access */ });
   }
 
-  function renderAuth(user) {
-    $("loginBtn").hidden = !!user;
+  function renderViewer() {
+    var user = viewer.user, guest = viewer.guest;
     $("authUser").hidden = !user;
+    $("authGuest").hidden = !guest;
     $("authEmail").textContent = user ? user.email : "";
     $("authEmail").title = user ? user.email : "";
+    if (guest) {
+      $("guestText").textContent = "Guest · " + guest.remaining + " of " +
+                                   guest.limit + " free analyses left";
+      $("guestLogin").hidden = !window.AUTH_ENABLED;
+      $("limitCount").textContent = guest.limit;
+    }
+
+    var limited = !!guest && guest.remaining <= 0;
+    $("uploadCard").hidden = limited;
+    $("limitCard").hidden = !limited;
+    if (limited) $("emptyState").hidden = true;
+
+    $("datasetRefresh").hidden = !user;     // guests always get the cached data
+    renderChatAccess();
   }
 
-  function authMsg(kind, text) {
-    $("authError").hidden = kind !== "error";
-    $("authInfo").hidden = kind !== "info";
-    if (kind) $(kind === "error" ? "authError" : "authInfo").textContent = text;
-  }
+  $("logoutBtn").addEventListener("click", function () {
+    this.disabled = true;
+    fetch("/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: "{}"
+    })
+      .catch(function () { /* cookies are cleared server-side regardless */ })
+      .then(function () { window.location.replace("/login"); });
+  });
 
-  function setAuthMode(mode) {
-    authMode = mode;
-    var signup = mode === "signup";
-    document.querySelectorAll(".auth-tab").forEach(function (t) {
-      var on = t.dataset.mode === mode;
-      t.classList.toggle("active", on);
-      t.setAttribute("aria-selected", on ? "true" : "false");
-    });
-    $("authTitle").textContent = signup ? "Create an account" : "Log in to FoodLens";
-    $("authSubmit").textContent = signup ? "Sign up" : "Log in";
-    $("authPasswordInput").autocomplete = signup ? "new-password" : "current-password";
-    authMsg(null);
-  }
-
-  if (window.AUTH_ENABLED) {
-    var dialog = $("authDialog");
-    $("authBar").hidden = false;
-
-    fetch("/auth/session", { credentials: "same-origin" })
-      .then(function (res) { return res.json(); })
-      .then(function (data) { renderAuth(data.user); })
-      .catch(function () { renderAuth(null); });
-
-    $("loginBtn").addEventListener("click", function () {
-      setAuthMode("login");
-      $("authForm").reset();
-      dialog.showModal();
-    });
-    $("authClose").addEventListener("click", function () { dialog.close(); });
-    dialog.addEventListener("click", function (e) {
-      if (e.target === dialog) dialog.close();     // backdrop click
-    });
-    document.querySelectorAll(".auth-tab").forEach(function (t) {
-      t.addEventListener("click", function () { setAuthMode(t.dataset.mode); });
-    });
-
-    $("authForm").addEventListener("submit", function (e) {
-      e.preventDefault();
-      var email = $("authEmailInput").value.trim();
-      var password = $("authPasswordInput").value;
-      if (!email || !password) { authMsg("error", "Enter your email and password."); return; }
-      if (authMode === "signup" && password.length < 6) {
-        authMsg("error", "Password must be at least 6 characters."); return;
-      }
-
-      var submit = $("authSubmit");
-      submit.disabled = true;
-      authMsg(null);
-      authPost("/auth/" + authMode, { email: email, password: password })
-        .then(function (data) {
-          if (data.confirmation_required) {
-            setAuthMode("login");
-            authMsg("info", "Check your inbox for a confirmation link, then log in.");
-            return;
-          }
-          renderAuth(data.user);
-          dialog.close();
-        })
-        .catch(function (err) {
-          authMsg("error", err.message || "Could not reach the login server.");
-        })
-        .finally(function () { submit.disabled = false; });
-    });
-
-    $("logoutBtn").addEventListener("click", function () {
-      authPost("/auth/logout")
-        .catch(function () { /* cookies are cleared server-side regardless */ })
-        .then(function () { renderAuth(null); });
-    });
-  }
+  loadViewer();
 
   showView("analysis");
 })();
