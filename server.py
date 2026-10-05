@@ -47,6 +47,7 @@ from charts import (                                            # noqa: E402
 )
 import dataset_nutrition                                       # noqa: E402
 from evaluate import compute_confusion, per_class_report      # noqa: E402
+from meals import MealError, nutrition_token, save_meal       # noqa: E402
 from gemini_chat import (                                     # noqa: E402
     ask_gemini, read_api_key, GeminiError, KEY_NAME as GEMINI_KEY_NAME,
     MODEL_NAME as GEMINI_MODEL,
@@ -196,6 +197,21 @@ def api_me():
     return jsonify({"id": g.user["sub"], "email": g.user.get("email")})
 
 
+# ── POST /api/meals — store the analysed meal for the logged-in user ────────
+@app.post("/api/meals")
+@require_user
+def api_save_meal():
+    """Nutrition is recomputed from the signed snapshot /api/analyze returned,
+    never taken from the browser; the write runs as the user, so RLS applies."""
+    if not request.is_json:
+        return jsonify({"error": "Expected a JSON body."}), 415
+    try:
+        saved = save_meal(request.get_json(silent=True))
+    except MealError as exc:
+        return jsonify({"error": str(exc)}), exc.status
+    return jsonify(saved), 201
+
+
 # ── POST /api/analyze — full pipeline on an uploaded photo ───────────────────
 @app.post("/api/analyze")
 @guest_quota
@@ -279,6 +295,8 @@ def api_analyze():
         "annotated_image": to_base64(pil_to_png_bytes(annotated)),
         "region_count": len(regions),
         "daily_goal": DAILY_GOAL,
+        # Signed per-100g figures behind this result; a save must send it back.
+        "nutrition_token": nutrition_token(recognized),
     })
 
 

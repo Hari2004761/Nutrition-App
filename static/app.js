@@ -281,9 +281,11 @@
     $("results").hidden = false;
 
     if (rec.length) {
+      startSave();
       startChat(data);
       applyPortions(true);
     } else {
+      $("saveSection").hidden = true;
       $("chartSection").hidden = true;
       $("goalSection").hidden = true;
       $("warnSection").hidden = true;
@@ -503,6 +505,7 @@
     renderGoal(totals.calories);
     renderWarnings(totals);
     updateChatContext(items, totals);
+    noteChangeAfterSave();
     scheduleCharts(items, totals, immediate);
   }
 
@@ -575,6 +578,97 @@
   $("cardColumn").addEventListener("input", onQuantityInput);
   $("cardColumn").addEventListener("change", onQuantityInput);
   $("cardColumn").addEventListener("click", onPortionClick);
+
+  /* ══════════════════ SAVE MEAL ══════════════════
+     One save per analysis, as the meal stands on screen. Only classes,
+     portions and quantities go up, with the signed nutrition snapshot from
+     /api/analyze; the server recomputes every figure from that snapshot. */
+  var mealSaved = false;
+  var mealSaving = false;
+
+  function defaultMealType() {
+    var h = new Date().getHours();
+    if (h >= 5 && h < 11) return "breakfast";
+    if (h >= 11 && h < 16) return "lunch";
+    if (h >= 17 && h < 22) return "dinner";
+    return "snack";
+  }
+
+  function startSave() {
+    mealSaved = false;
+    mealSaving = false;
+    var btn = $("saveMealBtn");
+    btn.disabled = false;
+    btn.classList.remove("is-saved");
+    btn.textContent = "Save meal";
+    $("mealType").value = defaultMealType();
+    $("mealType").disabled = false;
+    $("saveNote").hidden = true;
+    $("saveError").hidden = true;
+    $("saveSection").hidden = false;
+    renderSaveAccess();
+  }
+
+  function renderSaveAccess() {
+    var guest = isGuest();
+    $("saveLocked").hidden = !guest;
+    $("saveOpen").hidden = guest;
+    if (guest) $("saveError").hidden = true;
+  }
+
+  /* Runs on every portion or quantity change; only matters once saved. */
+  function noteChangeAfterSave() {
+    if (mealSaved) $("saveNote").hidden = false;
+  }
+
+  function mealPayload() {
+    return {
+      meal_type: $("mealType").value,
+      nutrition_token: analysis.nutrition_token,
+      items: (analysis.recognized || []).map(function (item, idx) {
+        return {
+          food_class:     item.name,
+          quantity:       item.countable ? (quantities[idx] || 1) : 1,
+          grams_per_item: portions[idx] != null ? portions[idx] : item.serving_g,
+          confidence:     item.confidence
+        };
+      })
+    };
+  }
+
+  $("saveMealBtn").addEventListener("click", function () {
+    if (mealSaved || mealSaving || !analysis) return;
+    var btn = this;
+    var savingFor = analysis;      // a new photo mid-save must not inherit "Saved"
+    mealSaving = true;
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+    $("saveError").hidden = true;
+
+    apiFetch("/api/meals", { method: "POST", body: mealPayload() })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          if (!res.ok) throw new Error(data.error || ("Saving failed (" + res.status + ")"));
+          return data;
+        });
+      })
+      .then(function () {
+        if (analysis !== savingFor) return;
+        mealSaved = true;
+        btn.textContent = "Saved ✓";
+        btn.classList.add("is-saved");
+        $("mealType").disabled = true;
+      })
+      .catch(function (err) {
+        if (analysis !== savingFor) return;
+        btn.disabled = false;
+        btn.textContent = "Save meal";
+        var box = $("saveError");
+        box.textContent = err.message || "Could not save the meal.";
+        box.hidden = false;
+      })
+      .finally(function () { mealSaving = false; });
+  });
 
   /* ══════════════════ CHAT (Gemini) ══════════════════ */
   /* The meal context travels with every message — the server keeps no session
@@ -1006,6 +1100,7 @@
 
     $("datasetRefresh").hidden = !user;     // guests always get the cached data
     renderChatAccess();
+    renderSaveAccess();
   }
 
   $("logoutBtn").addEventListener("click", function () {

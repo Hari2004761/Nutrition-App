@@ -12,7 +12,7 @@ secrets.json
 credentials.json
 
 # ─────────────────────────────────────────────────────────────
-# PERSONAL — private working notes and AI-assistant files,
+# PERSONAL — private working notes
 # not part of the deliverable.
 # ─────────────────────────────────────────────────────────────
 NOTES.md
@@ -73,7 +73,7 @@ outputs/crops/
 *.log
 
 # ─────────────────────────────────────────────────────────────
-# EDITOR AND OPERATING-SYSTEM CLUTTER — personal to this machine.
+# EDITOR AND OPERATING-SYSTEM CLUTTER — local to this machine.
 # ─────────────────────────────────────────────────────────────
 .idea/
 .vscode/

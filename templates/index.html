@@ -209,6 +209,31 @@
           <div class="warn-card" id="warnCard"></div>
         </div>
 
+        <div id="saveSection" hidden>
+          <p class="section-heading">Save this meal</p>
+          <div class="goal-card save-card">
+            <div class="save-row" id="saveOpen">
+              <label class="portion-label" for="mealType">Meal</label>
+              <select class="select save-select" id="mealType">
+                <option value="breakfast">Breakfast</option>
+                <option value="lunch">Lunch</option>
+                <option value="dinner">Dinner</option>
+                <option value="snack">Snack</option>
+              </select>
+              <button class="btn-send" id="saveMealBtn" type="button">Save meal</button>
+            </div>
+            <p class="save-note" id="saveNote" hidden>
+              Changes after saving aren't stored &mdash; edit saved meals from your history.
+            </p>
+            <div class="alert alert-error save-error" id="saveError" hidden></div>
+
+            <div class="chat-locked save-locked" id="saveLocked" hidden>
+              <p>Log in to save meals.</p>
+              <a class="btn-ghost" href="/login">Log in</a>
+            </div>
+          </div>
+        </div>
+
         <div id="chatSection" hidden>
           <p class="section-heading">Ask about this meal</p>
           <div class="chat-card">

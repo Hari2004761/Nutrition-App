@@ -184,7 +184,9 @@ def _resolve_user():
 
     if access:
         try:
-            return verify_token(access)
+            claims = verify_token(access)
+            g.access_token = access
+            return claims
         except jwt.PyJWKClientConnectionError:
             raise AuthError("Could not reach the auth server to verify the session.", 503)
         except jwt.ExpiredSignatureError:
@@ -208,6 +210,7 @@ def _resolve_user():
         _clear_session_cookies()
         return None
     _set_session_cookies(pair)
+    g.access_token = pair["access_token"]
     return claims
 
 
@@ -246,7 +249,8 @@ def require_token():
 def require_user(view):
     """Reject the request unless its session cookies hold a valid login.
 
-    The verified claims are available to the view as `g.user`.
+    The verified claims are available to the view as `g.user`, and the access
+    token they came from as `g.access_token` (for calls made as the user).
     """
     @wraps(view)
     def wrapper(*args, **kwargs):
