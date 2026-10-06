@@ -630,6 +630,73 @@ a.btn-link { display: block; text-align: center; }
 .save-error { margin: 12px 0 0; }
 .save-locked { margin-top: 0; }
 
+/* ══════════════════ HISTORY ══════════════════ */
+.history-locked { margin-top: 0; max-width: 640px; }
+.history-goto { margin-top: 20px; }
+.history-note { margin: 0 2px 16px; font-size: 13px; color: var(--slate); }
+.history-more { display: flex; margin: 4px auto 0; }
+
+.hist-day { margin-bottom: 26px; }
+.hist-day-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin: 0 2px 10px;
+}
+.hist-day-title { margin: 0; }
+.hist-day-totals { margin: 0; font-size: 13px; color: var(--slate); }
+.hist-day-totals strong { color: var(--navy); font-weight: 700; }
+.hist-day-card {
+  background: #fff; border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.04); overflow: hidden;
+}
+
+.hist-meal + .hist-meal { border-top: 1px solid var(--border); }
+.hist-meal-row { display: flex; align-items: center; }
+.hist-toggle {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 12px;
+  background: none; border: none; padding: 14px 16px; cursor: pointer;
+  font-family: inherit; color: var(--navy); text-align: left;
+  transition: background 0.15s;
+}
+.hist-toggle:hover { background: var(--bg); }
+.hist-toggle:focus-visible { outline: none; box-shadow: inset 0 0 0 2px rgba(37,99,235,0.35); }
+.hist-chevron { flex: none; color: var(--slate); transition: transform 0.15s; }
+.hist-toggle[aria-expanded="true"] .hist-chevron { transform: rotate(90deg); }
+.hist-type { font-size: 14px; font-weight: 700; min-width: 80px; }
+.hist-time { font-size: 13px; color: var(--slate); }
+.hist-kcal { margin-left: auto; font-size: 14px; font-weight: 700; white-space: nowrap; }
+.hist-delete {
+  flex: none; display: flex; background: none; border: none; border-radius: 6px;
+  padding: 10px 14px; color: #94A3B8; cursor: pointer; transition: color 0.15s;
+}
+.hist-delete:hover, .hist-delete:focus-visible { color: var(--red); outline: none; }
+
+/* the inline "Delete? Yes / Cancel" that replaces the bin icon */
+.hist-confirm {
+  flex: none; display: flex; align-items: center; gap: 8px; padding: 0 12px 0 4px;
+}
+.hist-confirm-text { font-size: 13px; font-weight: 600; color: #B91C1C; }
+.hist-confirm .btn-ghost { padding: 6px 12px; }
+.btn-danger {
+  font-family: inherit; font-size: 13px; font-weight: 600; color: #fff;
+  background: var(--red); border: none; border-radius: 8px;
+  padding: 7px 14px; cursor: pointer; transition: background 0.15s;
+}
+.btn-danger:hover:not(:disabled) { background: #B91C1C; }
+.btn-danger:disabled { opacity: 0.6; cursor: progress; }
+.hist-error { margin: 0 16px 12px; }
+
+.hist-items { padding: 0 16px 14px 44px; overflow-x: auto; }
+.hist-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.hist-table th {
+  text-align: left; font-size: 11px; font-weight: 600; color: var(--slate);
+  text-transform: uppercase; letter-spacing: 0.6px;
+  padding: 6px 8px; border-bottom: 1px solid var(--border);
+}
+.hist-table td { padding: 8px; color: #334155; border-bottom: 1px solid #F1F5F9; }
+.hist-table tr:last-child td { border-bottom: none; }
+.hist-table .hist-num { text-align: right; white-space: nowrap; }
+.hist-source { font-size: 12px; color: #94A3B8; min-width: 160px; }
+
 /* ══════════════════ RESPONSIVE ══════════════════ */
 @media (max-width: 980px) {
   .metric-grid { grid-template-columns: repeat(2, 1fr); }
@@ -637,4 +704,6 @@ a.btn-link { display: block; text-align: center; }
   .main { padding: 20px 18px 40px; }
   .chat-msg { max-width: 92%; }
   .auth-email { max-width: 140px; }
+  .hist-items { padding-left: 16px; }
+  .hist-type { min-width: 0; }
 }

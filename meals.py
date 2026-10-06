@@ -9,6 +9,7 @@ it depends on the Flask app and request.
 """
 import math
 import sys
+from datetime import datetime, timedelta, timezone
 
 import requests
 from flask import current_app, g
@@ -147,41 +148,139 @@ def build_items(payload):
 
 
 # ── Supabase REST, as the user ───────────────────────────────────────────────
-def _rest_error(res):
+_FAILED = {
+    "save":   "Could not save the meal. Try again shortly.",
+    "load":   "Could not load your meals. Try again shortly.",
+    "delete": "Could not delete the meal. Try again shortly.",
+}
+
+
+def _rest_error(res, action):
     """Map a PostgREST error onto something worth showing a user."""
     try:
         err = res.json()
     except ValueError:
         err = {}
     code = err.get("code") or ""
-    print(f"[foodlens] save_meal failed: HTTP {res.status_code} {code} "
+    print(f"[foodlens] meal {action} failed: HTTP {res.status_code} {code} "
           f"{err.get('message')} {err.get('details') or ''}", file=sys.stderr, flush=True)
-    if code == "PGRST202" or res.status_code == 404:
+    if action == "save" and (code == "PGRST202" or res.status_code == 404):
         return MealError("Saving meals isn't set up yet: the save_meal function "
                          "is missing in Supabase.", 503)
     if res.status_code == 401 or code.startswith("PGRST30"):
         return MealError("Your session has expired. Please log in again.", 401)
     if code == "42501" or res.status_code == 403:
-        return MealError("You're not allowed to save this meal.", 403)
-    if code in ("23514", "22023", "23502"):
+        return MealError(f"You're not allowed to {action} this meal.", 403)
+    if action == "save" and code in ("23514", "22023", "23502"):
         return MealError("The meal was rejected by the database: "
                          f"{err.get('message') or 'invalid values'}.", 400)
-    return MealError("Could not save the meal. Try again shortly.", 502)
+    return MealError(_FAILED[action], 502)
 
 
-def save_meal(payload):
-    """Validate, recompute and store one meal; returns the saved meal and items."""
-    meal_type, items = build_items(payload)
+def _rest(method, path, action, **kwargs):
+    """One call to Supabase's REST API with the user's own token, so RLS applies."""
+    headers = {"apikey": SUPABASE_PUBLISHABLE_KEY,
+               "Authorization": f"Bearer {g.access_token}",
+               **kwargs.pop("headers", {})}
     try:
-        res = requests.post(
-            f"{SUPABASE_URL}/rest/v1/rpc/save_meal",
-            json={"p_meal_type": meal_type, "p_items": items},
-            headers={"apikey": SUPABASE_PUBLISHABLE_KEY,
-                     "Authorization": f"Bearer {g.access_token}"},
-            timeout=HTTP_TIMEOUT_S,
-        )
+        res = requests.request(method, f"{SUPABASE_URL}/rest/v1/{path}",
+                               headers=headers, timeout=HTTP_TIMEOUT_S, **kwargs)
     except requests.RequestException:
         raise MealError("Could not reach the database. Try again shortly.", 503)
     if not res.ok:
-        raise _rest_error(res)
-    return {"meal": res.json(), "items": items}
+        raise _rest_error(res, action)
+    return res.json() if res.content else None
+
+
+_MEAL_FIELDS = ("id", "meal_type", "eaten_at",
+                "total_kcal", "total_protein_g", "total_carbs_g", "total_fat_g")
+_ITEM_FIELDS = ("food_class", "quantity", "grams_per_item",
+                "kcal", "protein_g", "carbs_g", "fat_g", "nutrition_source")
+
+
+def _meal_view(row, items):
+    """The one shape a meal leaves this module in, for saves and for history."""
+    meal = {k: row.get(k) for k in _MEAL_FIELDS}
+    meal["items"] = [{k: i.get(k) for k in _ITEM_FIELDS} for i in items]
+    return meal
+
+
+def save_meal(payload):
+    """Validate, recompute and store one meal; returns it as history shows it."""
+    meal_type, items = build_items(payload)
+    row = _rest("POST", "rpc/save_meal", "save",
+                json={"p_meal_type": meal_type, "p_items": items})
+    return {"meal": _meal_view(row, items)}
+
+
+# ── History ──────────────────────────────────────────────────────────────────
+HISTORY_DAYS = 7
+# Seven local days plus slack for a daylight-saving shift inside the window.
+MAX_WINDOW = timedelta(days=HISTORY_DAYS + 1)
+_INT8_MAX = 2 ** 63 - 1
+
+
+def _instant(value, label):
+    try:
+        moment = datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise MealError(f"{label} must be an ISO 8601 timestamp.")
+    if moment.tzinfo is None:
+        raise MealError(f"{label} must include a time zone.")
+    return moment.astimezone(timezone.utc)
+
+
+def list_meals(user_id, start=None, end=None):
+    """The user's meals in [start, end), newest first, with their items.
+
+    The browser sends the window aligned to its own local midnights, so the
+    server never needs the user's time zone. `older` is the time of the newest
+    meal before the window, or None when there is nothing further back.
+    """
+    end = _instant(end, "to") if end else datetime.now(timezone.utc)
+    start = _instant(start, "from") if start else end - timedelta(days=HISTORY_DAYS)
+    if not start < end:
+        raise MealError("from must be before to.")
+    if end - start > MAX_WINDOW:
+        raise MealError(f"The window can be at most {HISTORY_DAYS} days.")
+
+    # RLS already limits the rows to this user; the explicit filter lets
+    # Postgres use meals_user_time_idx.
+    mine = ("user_id", f"eq.{user_id}")
+    rows = _rest("GET", "meals", "load", params=[
+        ("select", ",".join(_MEAL_FIELDS) + ",meal_items(" + ",".join(_ITEM_FIELDS) + ")"),
+        mine,
+        ("eaten_at", f"gte.{start.isoformat()}"),
+        ("eaten_at", f"lt.{end.isoformat()}"),
+        ("order", "eaten_at.desc,id.desc"),
+        ("meal_items.order", "id.asc"),
+    ])
+    older = _rest("GET", "meals", "load", params=[
+        ("select", "eaten_at"),
+        mine,
+        ("eaten_at", f"lt.{start.isoformat()}"),
+        ("order", "eaten_at.desc"),
+        ("limit", "1"),
+    ])
+    return {
+        "meals": [_meal_view(r, r.get("meal_items") or []) for r in rows],
+        "from": start.isoformat(),
+        "to": end.isoformat(),
+        "older": older[0]["eaten_at"] if older else None,
+    }
+
+
+def delete_meal(meal_id):
+    """Delete one meal; its items go with it (on delete cascade).
+
+    Filtered by id only, so RLS alone decides ownership: another user's meal is
+    invisible and reads exactly like one that doesn't exist.
+    """
+    if not 0 < meal_id <= _INT8_MAX:
+        raise MealError("Meal not found.", 404)
+    deleted = _rest("DELETE", "meals", "delete",
+                    params=[("id", f"eq.{meal_id}")],
+                    headers={"Prefer": "return=representation"})
+    if not deleted:
+        raise MealError("Meal not found.", 404)
+    return {"deleted": meal_id}

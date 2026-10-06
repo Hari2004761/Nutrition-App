@@ -17,6 +17,7 @@
 
   var TITLES = {
     analysis: "Culinary Intelligence",
+    history:  "Meal History",
     training: "Model Training Graphs",
     dataset:  "Dataset Analysis"
   };
@@ -26,11 +27,13 @@
       li.classList.toggle("active", li.dataset.view === name);
     });
     $("view-analysis").hidden = name !== "analysis";
+    $("view-history").hidden  = name !== "history";
     $("view-training").hidden = name !== "training";
     $("view-dataset").hidden  = name !== "dataset";
     $("pageTitle").textContent = TITLES[name];
     if (name === "training") { loadTrainingRuns(); loadPerClassAccuracy(); }
     if (name === "dataset") { loadDataset(); }
+    if (name === "history") { renderHistoryAccess(); }
   }
 
   document.querySelectorAll(".sb-nav-item").forEach(function (li) {
@@ -652,7 +655,8 @@
           return data;
         });
       })
-      .then(function () {
+      .then(function (data) {
+        addSavedMeal(data.meal);
         if (analysis !== savingFor) return;
         mealSaved = true;
         btn.textContent = "Saved ✓";
@@ -669,6 +673,253 @@
       })
       .finally(function () { mealSaving = false; });
   });
+
+  /* ══════════════════ HISTORY ══════════════════
+     Saved meals, grouped by day in the browser's own time zone. Windows are
+     aligned to local midnights here and sent as instants, so the server never
+     needs the time zone. "Load more" jumps to the next older meal's week, so a
+     click never comes back empty. */
+  var mealLog = {
+    loaded: false,
+    loading: false,
+    meals: [],          // newest first, de-duplicated by id
+    older: null,        // eaten_at of the newest meal before the oldest window, or null
+    expanded: {}        // meal id -> true while its foods are shown
+  };
+  var HISTORY_DAYS = 7;
+
+  function localMidnight(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+  // Calendar arithmetic, so a daylight-saving day still counts as one day.
+  function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+
+  function renderHistoryAccess() {
+    var guest = isGuest();
+    $("historyLocked").hidden = !guest;
+    $("historyOpen").hidden = guest;
+    if (!guest && !$("view-history").hidden) loadHistory();
+  }
+
+  function loadHistory() {
+    if (isGuest() || mealLog.loaded || mealLog.loading) return;
+    var end = addDays(localMidnight(new Date()), 1);      // through the end of today
+    fetchHistory(addDays(end, -HISTORY_DAYS), end, true);
+  }
+
+  function loadOlder() {
+    if (!mealLog.older || mealLog.loading) return;
+    var end = addDays(localMidnight(new Date(mealLog.older)), 1);
+    fetchHistory(addDays(end, -HISTORY_DAYS), end, false);
+  }
+
+  function fetchHistory(from, to, first) {
+    mealLog.loading = true;
+    $("historyError").hidden = true;
+    if (first) $("historyLoading").hidden = false;
+    var more = $("historyMore");
+    more.disabled = true;
+    more.textContent = "Loading…";
+
+    apiFetch("/api/meals?from=" + encodeURIComponent(from.toISOString()) +
+             "&to=" + encodeURIComponent(to.toISOString()))
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          if (!res.ok) throw new Error(data.error || ("Could not load your meals (" + res.status + ")"));
+          return data;
+        });
+      })
+      .then(function (data) {
+        addMeals(data.meals || []);
+        mealLog.older = data.older;
+        mealLog.loaded = true;
+        renderHistory();
+      })
+      .catch(function (err) {
+        var box = $("historyError");
+        box.textContent = err.message + (first ? " Open History again to retry." : "");
+        box.hidden = false;
+      })
+      .finally(function () {
+        mealLog.loading = false;
+        $("historyLoading").hidden = true;
+        more.disabled = false;
+        more.textContent = "Load more";
+      });
+  }
+
+  function addMeals(list) {
+    var seen = {};
+    mealLog.meals.forEach(function (m) { seen[m.id] = true; });
+    list.forEach(function (m) { if (!seen[m.id]) mealLog.meals.push(m); });
+    mealLog.meals.sort(function (a, b) {
+      return new Date(b.eaten_at) - new Date(a.eaten_at) || b.id - a.id;
+    });
+  }
+
+  /* A meal saved on Food Analysis appears here at once, without a reload. */
+  function addSavedMeal(meal) {
+    if (!mealLog.loaded || !meal) return;
+    addMeals([meal]);
+    renderHistory();
+  }
+
+  function dayLabel(d) {
+    var diff = Math.round((localMidnight(new Date()) - localMidnight(d)) / 864e5);
+    if (diff === 0) return "Today";
+    if (diff === 1) return "Yesterday";
+    var opts = { weekday: "long", day: "numeric", month: "long" };
+    if (d.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+    return d.toLocaleDateString(undefined, opts);
+  }
+
+  function num(v) { return Math.round(Number(v) || 0); }
+
+  function itemRow(i) {
+    var qty = num(i.quantity) || 1;
+    var grams = num(i.grams_per_item);
+    var source = i.nutrition_source === "fallback" ? "Built-in table"
+               : (i.nutrition_source || "—");
+    return '<tr>' +
+      '<td>' + escapeHtml(titleCase(i.food_class)) + '</td>' +
+      '<td class="hist-num">' + qty + '</td>' +
+      '<td class="hist-num">' + (qty > 1 ? qty + " × " + grams + " g" : grams + " g") + '</td>' +
+      '<td class="hist-num">' + num(i.kcal) + '</td>' +
+      '<td class="hist-source">' + escapeHtml(source) + '</td>' +
+      '</tr>';
+  }
+
+  var CHEVRON = '<svg class="hist-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" ' +
+    'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<polyline points="9 18 15 12 9 6"></polyline></svg>';
+  // Lucide "trash-2"
+  var TRASH = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" ' +
+    'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"></path>' +
+    '<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>';
+
+  function mealHtml(m) {
+    var id = num(m.id);
+    var open = !!mealLog.expanded[id];
+    var time = new Date(m.eaten_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return '<div class="hist-meal" data-id="' + id + '">' +
+      '<div class="hist-meal-row">' +
+        '<button class="hist-toggle" type="button" aria-expanded="' + open +
+          '" aria-controls="histItems' + id + '">' + CHEVRON +
+          '<span class="hist-type">' + escapeHtml(titleCase(m.meal_type || "meal")) + '</span>' +
+          '<span class="hist-time">' + escapeHtml(time) + '</span>' +
+          '<span class="hist-kcal">' + num(m.total_kcal) + ' kcal</span>' +
+        '</button>' +
+        '<button class="hist-delete" type="button" title="Delete meal" aria-label="Delete meal">' +
+          TRASH + '</button>' +
+        '<span class="hist-confirm" hidden>' +
+          '<span class="hist-confirm-text">Delete?</span>' +
+          '<button class="btn-danger hist-confirm-yes" type="button">Yes</button>' +
+          '<button class="btn-ghost hist-confirm-no" type="button">Cancel</button>' +
+        '</span>' +
+      '</div>' +
+      '<div class="alert alert-error hist-error" hidden></div>' +
+      '<div class="hist-items" id="histItems' + id + '"' + (open ? '' : ' hidden') + '>' +
+        '<table class="hist-table"><thead><tr>' +
+          '<th>Food</th><th class="hist-num">Qty</th><th class="hist-num">Grams</th>' +
+          '<th class="hist-num">kcal</th><th>Source</th>' +
+        '</tr></thead><tbody>' + (m.items || []).map(itemRow).join("") + '</tbody></table>' +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderHistory() {
+    var days = [], byKey = {};
+    mealLog.meals.forEach(function (m) {
+      var d = new Date(m.eaten_at);
+      var key = d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate();
+      if (!byKey[key]) {
+        byKey[key] = { date: d, meals: [], kcal: 0, protein: 0, carbs: 0, fat: 0 };
+        days.push(byKey[key]);
+      }
+      var day = byKey[key];
+      day.meals.push(m);
+      day.kcal    += Number(m.total_kcal) || 0;
+      day.protein += Number(m.total_protein_g) || 0;
+      day.carbs   += Number(m.total_carbs_g) || 0;
+      day.fat     += Number(m.total_fat_g) || 0;
+    });
+
+    $("historyDays").innerHTML = days.map(function (day) {
+      return '<div class="hist-day">' +
+        '<div class="hist-day-head">' +
+          '<p class="section-heading hist-day-title">' + escapeHtml(dayLabel(day.date)) + '</p>' +
+          '<p class="hist-day-totals"><strong>' + num(day.kcal) + '</strong> kcal' +
+            ' &middot; Protein <strong>' + num(day.protein) + '</strong> g' +
+            ' &middot; Carbs <strong>' + num(day.carbs) + '</strong> g' +
+            ' &middot; Fat <strong>' + num(day.fat) + '</strong> g</p>' +
+        '</div>' +
+        '<div class="hist-day-card">' + day.meals.map(mealHtml).join("") + '</div>' +
+      '</div>';
+    }).join("");
+
+    var none = !mealLog.meals.length;
+    $("historyEmpty").hidden = !(none && !mealLog.older);
+    $("historyNote").hidden = !(none && mealLog.older);
+    $("historyNote").textContent = "No meals saved in the past week.";
+    $("historyMore").hidden = !mealLog.older;
+  }
+
+  function setConfirming(row, on) {
+    row.querySelector(".hist-delete").hidden = on;
+    row.querySelector(".hist-confirm").hidden = !on;
+  }
+
+  function deleteMeal(row, id) {
+    var yes = row.querySelector(".hist-confirm-yes");
+    var err = row.querySelector(".hist-error");
+    yes.disabled = true;
+    yes.textContent = "Deleting…";
+    err.hidden = true;
+
+    apiFetch("/api/meals/" + id, { method: "DELETE" })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; }).then(function (data) {
+          // 404: already gone (deleted in another tab), so drop it here too.
+          if (!res.ok && res.status !== 404) {
+            throw new Error(data.error || ("Could not delete the meal (" + res.status + ")"));
+          }
+        });
+      })
+      .then(function () {
+        mealLog.meals = mealLog.meals.filter(function (m) { return m.id !== id; });
+        delete mealLog.expanded[id];
+        renderHistory();
+      })
+      .catch(function (e) {
+        err.textContent = e.message || "Could not delete the meal.";
+        err.hidden = false;
+        yes.disabled = false;
+        yes.textContent = "Yes";
+      });
+  }
+
+  $("historyDays").addEventListener("click", function (e) {
+    var row = e.target.closest(".hist-meal");
+    if (!row) return;
+    var id = Number(row.dataset.id);
+
+    if (e.target.closest(".hist-toggle")) {
+      var open = !mealLog.expanded[id];
+      if (open) mealLog.expanded[id] = true; else delete mealLog.expanded[id];
+      row.querySelector(".hist-toggle").setAttribute("aria-expanded", String(open));
+      row.querySelector(".hist-items").hidden = !open;
+    } else if (e.target.closest(".hist-delete")) {
+      setConfirming(row, true);
+      row.querySelector(".hist-confirm-no").focus();
+    } else if (e.target.closest(".hist-confirm-no")) {
+      setConfirming(row, false);
+      row.querySelector(".hist-error").hidden = true;
+    } else if (e.target.closest(".hist-confirm-yes")) {
+      deleteMeal(row, id);
+    }
+  });
+
+  $("historyMore").addEventListener("click", loadOlder);
+  $("historyGoAnalysis").addEventListener("click", function () { showView("analysis"); });
 
   /* ══════════════════ CHAT (Gemini) ══════════════════ */
   /* The meal context travels with every message — the server keeps no session
@@ -1101,6 +1352,7 @@
     $("datasetRefresh").hidden = !user;     // guests always get the cached data
     renderChatAccess();
     renderSaveAccess();
+    renderHistoryAccess();
   }
 
   $("logoutBtn").addEventListener("click", function () {

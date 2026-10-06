@@ -47,7 +47,9 @@ from charts import (                                            # noqa: E402
 )
 import dataset_nutrition                                       # noqa: E402
 from evaluate import compute_confusion, per_class_report      # noqa: E402
-from meals import MealError, nutrition_token, save_meal       # noqa: E402
+from meals import (                                            # noqa: E402
+    MealError, delete_meal, list_meals, nutrition_token, save_meal,
+)
 from gemini_chat import (                                     # noqa: E402
     ask_gemini, read_api_key, GeminiError, KEY_NAME as GEMINI_KEY_NAME,
     MODEL_NAME as GEMINI_MODEL,
@@ -210,6 +212,29 @@ def api_save_meal():
     except MealError as exc:
         return jsonify({"error": str(exc)}), exc.status
     return jsonify(saved), 201
+
+
+# ── GET /api/meals — the user's history, one window at a time ───────────────
+@app.get("/api/meals")
+@require_user
+def api_list_meals():
+    """Read-only. ?from= & ?to= are ISO instants the browser aligns to its own
+    local midnights; without them, the last seven days."""
+    try:
+        return jsonify(list_meals(g.user["sub"],
+                                  request.args.get("from"), request.args.get("to")))
+    except MealError as exc:
+        return jsonify({"error": str(exc)}), exc.status
+
+
+# ── DELETE /api/meals/<id> — one meal, its items cascade ────────────────────
+@app.delete("/api/meals/<int:meal_id>")
+@require_user
+def api_delete_meal(meal_id):
+    try:
+        return jsonify(delete_meal(meal_id))
+    except MealError as exc:
+        return jsonify({"error": str(exc)}), exc.status
 
 
 # ── POST /api/analyze — full pipeline on an uploaded photo ───────────────────

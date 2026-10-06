@@ -51,6 +51,17 @@
         </svg>
         <span class="sb-nav-text">Food Analysis</span>
       </li>
+      <li class="sb-nav-item" data-view="history" tabindex="0" role="button">
+        <!-- Lucide "history" -->
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
+             stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+          <path d="M3 3v5h5"></path>
+          <path d="M12 7v5l4 2"></path>
+        </svg>
+        <span class="sb-nav-text">History</span>
+      </li>
       <li class="sb-nav-item" data-view="training" tabindex="0" role="button">
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none"
              stroke="currentColor" stroke-width="2"
@@ -297,6 +308,47 @@
             </p>
           </div>
         </div>
+      </div>
+    </section>
+
+    <!-- ─────────── HISTORY ─────────── -->
+    <section class="view" id="view-history" hidden>
+      <div class="chat-locked history-locked" id="historyLocked" hidden>
+        <p>Log in to see your meal history.</p>
+        <a class="btn-ghost" href="/login">Log in</a>
+      </div>
+
+      <div id="historyOpen">
+        <div class="loading-card" id="historyLoading" hidden>
+          <div class="spinner"></div>
+          <p>Loading your meals &hellip;</p>
+        </div>
+        <div class="alert alert-error" id="historyError" hidden></div>
+
+        <div class="empty-state" id="historyEmpty" hidden>
+          <div class="empty-icon">
+            <svg viewBox="0 0 24 24" width="44" height="44" fill="none"
+                 stroke="currentColor" stroke-width="1.5"
+                 stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path>
+              <path d="M3 3v5h5"></path>
+              <path d="M12 7v5l4 2"></path>
+            </svg>
+          </div>
+          <p class="empty-title">No saved meals yet</p>
+          <p class="empty-body">
+            Analyse a photo on Food Analysis and save it &mdash; it will show up here.
+          </p>
+          <button class="btn-ghost history-goto" id="historyGoAnalysis" type="button">
+            Go to Food Analysis
+          </button>
+        </div>
+
+        <p class="history-note" id="historyNote" hidden></p>
+        <div id="historyDays"></div>
+        <button class="btn-ghost history-more" id="historyMore" type="button" hidden>
+          Load more
+        </button>
       </div>
     </section>
 
